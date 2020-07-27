@@ -24,7 +24,7 @@ class get_pybind_include(object):
 
 ext_modules = [
     Extension(
-        'python_example',
+        'vasapy',
         sorted(['src/dict.cpp']),
         include_dirs=[
             # Path to pybind11 headers
