@@ -2,6 +2,7 @@
 #include <iostream>
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include <stdexcept>
 
 namespace py = pybind11;
 
@@ -61,12 +62,14 @@ class dict{
 private:
   std::unique_ptr<arr_map> m;
 
-  template<int ...N> std::unique_ptr<arr_map> init_dict(
+  template<int ...N> [[ noreturn ]]std::unique_ptr<arr_map> init_dict(
       py::array k, py::array d, IntList<>, IntList<N...>) {
-    return std::make_unique<flat_arr_map<std::int64_t, std::int64_t> >(k, d); }
-  template<int ...N> std::unique_ptr<arr_map> init_dict(
+    throw std::invalid_argument("Data type not supported");
+  }
+  template<int ...N> [[ noreturn ]]std::unique_ptr<arr_map> init_dict(
       py::array k, py::array d, IntList<N...>, IntList<>) {
-    return std::make_unique<flat_arr_map<std::int64_t, std::int64_t> >(k, d); }
+    throw std::invalid_argument("Data type not supported");
+  }
   template <int I, int ...N, int J, int ...M>
   std::unique_ptr<arr_map> init_dict(
       py::array k, py::array d, IntList<I, N...>, IntList<J, M...>) {
