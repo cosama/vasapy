@@ -1,8 +1,8 @@
 vasapy (Vectorized ASsociative Arrays for PYthon)
 =================================================
 
-This is a lightweight wrapper of (parallel_hashmap)[https://github.com/greg7mdp/parallel-hashmap.git]
-using (pybind11)[https://github.com/pybind/pybind11] to allow for vectorized
+This is a lightweight wrapper of [parallel_hashmap](https://github.com/greg7mdp/parallel-hashmap.git)
+using [pybind11](https://github.com/pybind/pybind11) to allow for vectorized
 operation on dictionaries (and maybe later sets).
 
 Right now it is limited to insert on creation and getting items but I hope to find
