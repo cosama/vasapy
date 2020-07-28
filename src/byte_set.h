@@ -2,6 +2,8 @@
 
 template <int T> struct byte_set {
   char data_[T];
+  byte_set() {};
+  byte_set(void* d) { memcpy(data_, d, T); };
   bool operator==(const byte_set &other) const {
     return memcmp(data_, other.data_, T) == 0;
   }
