@@ -2,11 +2,12 @@ import numpy as np
 import vasapy as vp
 
 dl = [
-    # np.bool_, np.byte, np.ubyte,
-    # np.cdouble, #np.clongdouble, np.longdouble,
+    #np.bool_, np.byte, np.ubyte,
+    np.cdouble, np.clongdouble, np.longdouble,
     np.short, np.ushort, np.intc, np.uintc, np.int_, np.uint, np.longlong,
-    np.ulonglong, np.half, np.single, np.double, np.csingle, np.int8, np.int16,
-    np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64, np.float32,
+    np.ulonglong, np.half, np.single, np.double, np.csingle,
+    np.int8, np.int16, np.uint8,
+    np.int32, np.int64, np.uint16, np.uint32, np.uint64, np.float32,
     np.float64]
 
 for k in dl:

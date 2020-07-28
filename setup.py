@@ -3,8 +3,6 @@ from setuptools.command.build_ext import build_ext
 import sys
 import setuptools
 import os
-dir_path = os.path.dirname(os.path.realpath(__file__))
-dir_3rd_party = os.path.join(dir_path, "3rd-party", "parallel-hashmap")
 
 __version__ = '0.0.1'
 
@@ -28,7 +26,9 @@ ext_modules = [
         sorted(['src/dict.cpp']),
         include_dirs=[
             # Path to pybind11 headers
-            get_pybind_include(), dir_3rd_party
+            get_pybind_include(),
+            os.path.join("3rd-party", "parallel-hashmap"),
+            "src"
         ],
         language='c++'
     ),

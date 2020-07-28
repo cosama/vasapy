@@ -1,4 +1,5 @@
 #include <parallel_hashmap/phmap.h>
+#include <byte_set.h>
 #include <iostream>
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
@@ -40,8 +41,9 @@ template <typename K, typename T> struct flat_arr_map: arr_map {
     T *dptr = (T*)(dinfo.ptr);
     for(int i = 0; i < kinfo.size; i++) {
       auto d = map_.find(kptr[i]);
-      if(d == map_.end())
-        dptr[i] = 1 ;//fill_;
+      if(d == map_.end()) {
+        throw std::runtime_error("Fill not implemented");
+      }
       else
         dptr[i] = d->second;
     }
@@ -75,25 +77,15 @@ private:
       py::array k, py::array d, IntList<I, N...>, IntList<J, M...>) {
     py::buffer_info kinfo = k.request();
     py::buffer_info dinfo = d.request();
-
     if (I != kinfo.itemsize) {
       return init_dict(k, d, IntList<N...>(), IntList<J, M...>()); }
     if (J != dinfo.itemsize) {
       return init_dict(k, d, IntList<I, N...>(), IntList<M...>()); }
-
-    using K = typename std::conditional_t<I == 1, std::int8_t,
-      std::conditional_t<I == 2, std::int16_t,
-        std::conditional_t<I == 4, std::int32_t,
-          std::conditional_t<I == 8, std::int64_t, std::int64_t>>>>;
-    using T = typename std::conditional_t<J == 1, std::int8_t,
-      std::conditional_t<J == 2, std::int16_t,
-        std::conditional_t<J == 4, std::int32_t,
-          std::conditional_t<J == 8, std::int64_t, std::int64_t>>>>;
-   return std::make_unique<flat_arr_map<K, T> >(k, d);
+   return std::make_unique<flat_arr_map<byte_set<I>, byte_set<J> > >(k, d);
   };
 public:
   dict(py::array k, py::array d){
-    m = init_dict(k, d, IntList<1, 2, 4, 8>(), IntList<1, 2, 4, 8>());
+    m = init_dict(k, d, IntList<1, 2, 4, 8, 16, 32>(), IntList<1, 2, 4, 8, 16, 32>());
   };
 
   py::array getitem(py::array k){
