@@ -19,10 +19,18 @@ def test_dict_dtypes():
             data = (np.random.rand(100)*100).astype(d)
             hd = vp.dict(keys, data, fill=fill)
             d2 = hd[keys]
-            assert d2.dtype == d, "{} not {}".format(d2.dtype, k)
-            assert all(data == d2), "{} not {} for dtype {}".format(data, d2, d)
             tfill = hd[np.array([101], dtype=k)][0]
+
+            assert d2.dtype == d, "{} not {}".format(d2.dtype, k)
+
+            assert all(data == d2), "{} not {} for dtype {}".format(data, d2, d)
 
             assert tfill == fill, "{} not {}".format(tfill, fill)
 
             assert all(np.sort(hd.keys()) == np.sort(keys))
+
+            assert len(hd) == 100
+
+            assert np.all(hd.contains(keys[[10, 20, 30, 40, 50]]) == True)
+
+            assert np.all(hd.contains(np.array([101, 102], dtype=k)) == False)
