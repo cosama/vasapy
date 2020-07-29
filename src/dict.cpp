@@ -23,6 +23,7 @@ template <int T> byte_set<T> byte_set_from_pyobject(
 struct arr_map {
   virtual ~arr_map() = default;
   virtual py::array getitem(py::array) = 0;
+  virtual py::array keys() = 0;
 };
 
 
@@ -54,14 +55,24 @@ template <typename K, typename T> struct flat_arr_map: arr_map {
     T *dptr = (T*)(dinfo.ptr);
     for(int i = 0; i < kinfo.size; i++) {
       auto d = map_.find(kptr[i]);
-      if(d == map_.end()) {
+      if(d == map_.end())
         dptr[i] = fill_;
-        //throw std::runtime_error("Fill not implemented");
-      }
       else
         dptr[i] = d->second;
     }
     return data;
+  }
+
+  py::array keys() {
+    auto keys = py::array(ktype_, std::vector<py::size_t>({map_.size()}),
+                          std::vector<py::ssize_t>({ktype_.itemsize()}));
+    py::buffer_info kinfo = keys.request();
+    K *kptr = (K*)(kinfo.ptr);
+    for(const auto& p: map_) {
+      kptr[0] = p.first;
+      ++kptr;
+    }
+    return keys;
   }
 
   phmap::flat_hash_map<K, T> map_;
@@ -103,9 +114,12 @@ public:
     m = init_dict(k, d, o, IntList<1, 2, 4, 8, 16, 32>(), IntList<1, 2, 4, 8, 16, 32>());
   };
 
-  py::array getitem(py::array k){
+  py::array getitem(py::array k) {
     return m->getitem(k);
   };
+  py::array keys() {
+    return m->keys();
+  }
 };
 
 
@@ -113,5 +127,6 @@ PYBIND11_MODULE(vasapy, m) {
     py::class_<dict>(m, "dict")
         .def(py::init<py::array, py::array, py::object>(),
              py::arg("keys"), py::arg("data"), py::arg("fill") = 0)
-        .def("__getitem__", &dict::getitem);
+        .def("__getitem__", &dict::getitem)
+        .def("keys", &dict::keys);
 };
