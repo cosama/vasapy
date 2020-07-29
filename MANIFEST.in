@@ -1,0 +1,2 @@
+recursive-include 3rd-party/parallel-hashmap/parallel_hashmap *h
+recursive-include 3rd-party *README* *LICENSE*
