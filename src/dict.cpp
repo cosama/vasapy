@@ -13,12 +13,14 @@ namespace py = pybind11;
                      bool, float, double, long long, unsigned long long, long double
                      //float _Complex, double _Complex, long double _Complex
 
+
 // Function to convert any python object into a byte_set by converting it first
 // into a numpy array. Uses lots of python code, couldn't come up with
 // something better.
 template <typename T> T type_from_pyobject(
     const py::object &pyinp, const py::dtype &dtype) {
   return (py::cast(&dtype).attr("type")(pyinp)).cast<T>();
+
 };
 
 struct dict_ {
@@ -30,9 +32,11 @@ struct dict_ {
 };
 
 
-template <typename K, typename T> struct dict_typed_: dict_ {
+template <typename KK, typename TT> struct dict_typed_: dict_ {
+  using K = byte_set<sizeof(KK)>;
+  using T = byte_set<sizeof(TT)>;
 
-  dict_typed_(py::array keys, py::array data, T fill) {
+  dict_typed_(py::array keys, py::array data, TT fill) {
     py::buffer_info kinfo = keys.request();
     K *kptr = (K*)(kinfo.ptr);
     py::buffer_info dinfo = data.request();
@@ -61,7 +65,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     for(int i = 0; i < kinfo.size; i++) {
       auto d = map_.find(kptr[i]);
       if(d == map_.end())
-        dptr[i] = fill_;
+        dptr[i] = ((T*)(&fill_))[0];
       else
         dptr[i] = d->second;
     }
@@ -99,7 +103,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
   phmap::flat_hash_map<K, T> map_;
   py::dtype ktype_;
   py::dtype dtype_;
-  T fill_;
+  TT fill_;
 };
 
 
@@ -122,8 +126,6 @@ std::unique_ptr<dict_> init_dict_(
     return init_dict_(k, d, o, TypeList<N...>(), TypeList<J, M...>()); }
   if (!py::dtype(dinfo).is(py::dtype::of<J>())) {
     return init_dict_(k, d, o, TypeList<I, N...>(), TypeList<M...>()); }
-    I a; J b;
-    std::cout << typeid(a).name() << " " << typeid(b).name() << std::endl;
   J fill = type_from_pyobject<J>(o, py::dtype(dinfo));
   return std::make_unique<dict_typed_<I, J> >(k, d, fill);
 };
