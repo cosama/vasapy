@@ -5,9 +5,10 @@ def test_dict_dtypes():
     dl = [
         #np.bool_,
         np.byte, np.ubyte,
-        np.cdouble, np.clongdouble, np.longdouble,
-        np.short, np.ushort, np.intc, np.uintc, np.int_, np.uint, np.longlong,
-        np.ulonglong, np.half, np.single, np.double, np.csingle,
+        #np.cdouble, np.clongdouble, np.longdouble, np.csingle,
+        np.short, np.ushort, np.intc, np.uintc, np.int_, np.uint, np.longlong, np.ulonglong,
+        #np.half,
+        np.single, np.double,
         np.int8, np.int16, np.uint8, np.int32, np.int64,
         np.uint16, np.uint32,np.uint64,
         np.float32, np.float64]
@@ -17,6 +18,7 @@ def test_dict_dtypes():
             fill = d(1.0)
             keys = np.arange(100, dtype=k)
             data = (np.random.rand(100)*100).astype(d)
+            print(k, d)
             hd = vp.dict(keys, data, fill=fill)
             d2 = hd[keys]
             tfill = hd[np.array([101], dtype=k)][0]

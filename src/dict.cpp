@@ -4,20 +4,21 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <stdexcept>
+#include <complex.h>
 
 namespace py = pybind11;
+
+#define __NP_TYPES__ std::int8_t, std::int16_t, std::int32_t, std::int64_t, \
+                     std::uint8_t, std::uint16_t, std::uint32_t, std::uint64_t, \
+                     bool, float, double, long long, unsigned long long, long double
+                     //float _Complex, double _Complex, long double _Complex
 
 // Function to convert any python object into a byte_set by converting it first
 // into a numpy array. Uses lots of python code, couldn't come up with
 // something better.
-template <int T> byte_set<T> byte_set_from_pyobject(
+template <typename T> T type_from_pyobject(
     const py::object &pyinp, const py::dtype &dtype) {
-  py::object np = py::module::import("numpy");
-  py::object array = np.attr("array");
-  py::object ap = array(pyinp, py::cast(&dtype));
-  py::array ac = ap.cast<py::array>();
-  py::buffer_info info = ac.request();
-  return byte_set<T>(info.ptr);
+  return (py::cast(&dtype).attr("type")(pyinp)).cast<T>();
 };
 
 struct dict_ {
@@ -102,27 +103,29 @@ template <typename K, typename T> struct dict_typed_: dict_ {
 };
 
 
-template <int ...> struct IntList {};
+template <typename ...> struct TypeList {};
 
-template<int ...N> [[ noreturn ]]std::unique_ptr<dict_> init_dict_(
-    py::array k, py::array d, py::object o, IntList<>, IntList<N...>) {
+template<typename ...N> [[ noreturn ]]std::unique_ptr<dict_> init_dict_(
+    py::array k, py::array d, py::object o, TypeList<>, TypeList<N...>) {
   throw std::invalid_argument("Data type not supported");
 }
-template<int ...N> [[ noreturn ]]std::unique_ptr<dict_> init_dict_(
-    py::array k, py::array d, py::object o, IntList<N...>, IntList<>) {
+template<typename ...N> [[ noreturn ]]std::unique_ptr<dict_> init_dict_(
+    py::array k, py::array d, py::object o, TypeList<N...>, TypeList<>) {
   throw std::invalid_argument("Data type not supported");
 }
-template <int I, int ...N, int J, int ...M>
+template <typename I, typename ...N, typename J, typename ...M>
 std::unique_ptr<dict_> init_dict_(
-    py::array k, py::array d, py::object o, IntList<I, N...>, IntList<J, M...>) {
+    py::array k, py::array d, py::object o, TypeList<I, N...>, TypeList<J, M...>) {
   py::buffer_info kinfo = k.request();
   py::buffer_info dinfo = d.request();
-  if (I != kinfo.itemsize) {
-    return init_dict_(k, d, o, IntList<N...>(), IntList<J, M...>()); }
-  if (J != dinfo.itemsize) {
-    return init_dict_(k, d, o, IntList<I, N...>(), IntList<M...>()); }
-  byte_set<J> fill = byte_set_from_pyobject<J>(o, py::dtype(dinfo));
-  return std::make_unique<dict_typed_<byte_set<I>, byte_set<J> > >(k, d, fill);
+  if (!py::dtype(kinfo).is(py::dtype::of<I>())) {
+    return init_dict_(k, d, o, TypeList<N...>(), TypeList<J, M...>()); }
+  if (!py::dtype(dinfo).is(py::dtype::of<J>())) {
+    return init_dict_(k, d, o, TypeList<I, N...>(), TypeList<M...>()); }
+    I a; J b;
+    std::cout << typeid(a).name() << " " << typeid(b).name() << std::endl;
+  J fill = type_from_pyobject<J>(o, py::dtype(dinfo));
+  return std::make_unique<dict_typed_<I, J> >(k, d, fill);
 };
 
 
@@ -130,8 +133,7 @@ PYBIND11_MODULE(vasapy, m) {
     py::class_<dict_>(m, "dict")
         .def(py::init(
           [](py::array k, py::array d, py::object o) {
-            return init_dict_(k, d, o, IntList<1, 2, 4, 8, 16, 32>(),
-                              IntList<1, 2, 4, 8, 16, 32>());
+            return init_dict_(k, d, o, TypeList<__NP_TYPES__>(), TypeList<__NP_TYPES__>());
           }), py::arg("keys"), py::arg("data"), py::arg("fill") = 0)
         .def("__len__", &dict_::len)
         .def("__getitem__", &dict_::getitem, py::arg("keys"))
