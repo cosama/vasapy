@@ -4,15 +4,22 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <stdexcept>
-#include <complex.h>
+#include <complex>
 
 namespace py = pybind11;
 
-#define __NP_TYPES__ std::int8_t, std::int16_t, std::int32_t, std::int64_t, \
-                     std::uint8_t, std::uint16_t, std::uint32_t, std::uint64_t, \
-                     bool, float, double, long long, unsigned long long, long double
-                     //float _Complex, double _Complex, long double _Complex
-
+#define __NP_TYPES__ bool, \
+                     short, unsigned short, \
+                     float, double, long double, \
+                     std::complex<float>, std::complex<double>, std::complex<long double>, \
+                     std::int8_t, std::uint8_t, std::int16_t, std::uint16_t, \
+                     std::int32_t, std::uint32_t, std::int64_t, std::uint64_t
+                     // int, unsigned int
+                     // long, unsigned long,
+                     // long long, unsigned long long,
+                     // NPY_OBJECT_ = 17,
+                     // NPY_STRING_, NPY_UNICODE_, NPY_VOID_,
+                     // MISSING: np.half, np.longlong, np.ulonglong
 
 // Function to convert any python object into a byte_set by converting it first
 // into a numpy array. Uses lots of python code, couldn't come up with
@@ -61,11 +68,12 @@ template <typename KK, typename TT> struct dict_typed_: dict_ {
     }
     auto data = py::array(dtype_, kinfo.shape, strides);
     py::buffer_info dinfo = data.request();
+    TT *ddptr = (TT*)(dinfo.ptr);
     T *dptr = (T*)(dinfo.ptr);
     for(int i = 0; i < kinfo.size; i++) {
       auto d = map_.find(kptr[i]);
       if(d == map_.end())
-        dptr[i] = ((T*)(&fill_))[0];
+        ddptr[i] = fill_;
       else
         dptr[i] = d->second;
     }
@@ -111,7 +119,7 @@ template <typename ...> struct TypeList {};
 
 template<typename ...N> [[ noreturn ]]std::unique_ptr<dict_> init_dict_(
     py::array k, py::array d, py::object o, TypeList<>, TypeList<N...>) {
-  throw std::invalid_argument("Data type not supported");
+  throw std::invalid_argument("Key type not supported");
 }
 template<typename ...N> [[ noreturn ]]std::unique_ptr<dict_> init_dict_(
     py::array k, py::array d, py::object o, TypeList<N...>, TypeList<>) {
