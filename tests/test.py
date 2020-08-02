@@ -48,22 +48,18 @@ nptypes = [
 
 @pytest.mark.parametrize("dtype", nptypes)
 @pytest.mark.parametrize("ktype", nptypes)
-def test_dict_dtypes(dtype, ktype):
+def test_dict_arrays(dtype, ktype):
     if ktype == np.bool_ or ktype == np.bool8:
         return
-    fill = dtype(1.0)
     keys = np.arange(100, dtype=ktype)
     data = (np.random.rand(100)*100).astype(dtype)
     print(ktype, dtype)
-    hd = vp.dict(keys, data, fill=fill)
+    hd = vp.dict(keys, data)
     d2 = hd[keys]
-    tfill = hd[np.array([101], dtype=ktype)][0]
 
     assert d2.dtype == dtype, "{} not {}".format(d2.dtype, ktype)
 
     assert all(data == d2), "{} not {} for dtype {}".format(data, d2, dtype)
-
-    assert tfill == fill, "{} not {}".format(tfill, fill)
 
     assert all(np.sort(hd.keys()) == np.sort(keys))
 
@@ -72,3 +68,23 @@ def test_dict_dtypes(dtype, ktype):
     assert np.all(hd.contains(keys[[10, 20, 30, 40, 50]]) == True)
 
     assert np.all(hd.contains(np.array([101, 102], dtype=ktype)) == False)
+
+
+@pytest.mark.parametrize("dtype", nptypes)
+@pytest.mark.parametrize("ktype", nptypes)
+def test_dict_dtypes(dtype, ktype):
+    ktype_ = np.dtype(ktype)
+    dtype_ = np.dtype(dtype)
+    hd = vp.dict(ktype_, dtype_)
+    assert len(hd) == 0
+    assert ktype_ == hd.ktype
+    assert dtype_ == hd.dtype
+
+
+@pytest.mark.parametrize("dtype", nptypes)
+@pytest.mark.parametrize("ktype", nptypes)
+def test_dict_fill(dtype, ktype):
+    fill = dtype(1.0)
+    hd = vp.dict(np.dtype(ktype), np.dtype(dtype))
+    tfill = hd.get(np.array([0], dtype=ktype), fill)[0]
+    assert tfill == fill, "{} not {}".format(tfill, fill)
