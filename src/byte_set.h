@@ -18,45 +18,58 @@ template <int T> struct byte_set {
 //     std::conditional_t<J == 4, std::int32_t,
 //       std::conditional_t<J == 8, std::int64_t, std::int64_t>>>>;
 
-// template<> struct byte_set<1>  {
-//   std::uint8_t data_;
-//   bool operator==(const byte_set &other) const {
-//     return data_ == other.data_;
-//   }
-//   friend std::size_t hash_value(const byte_set<1> &b) {
-//     return std::hash<std::uint8_t>{}(b.data_);
-//   }
-// };
-//
-//
-// template<> struct byte_set<2> {
-//   std::uint16_t data_;
-//   bool operator==(const byte_set &other) const {
-//     return data_ == other.data_;
-//   }
-//   friend std::size_t hash_value(const byte_set<2> &b) {
-//     return std::hash<std::uint16_t>{}(b.data_);
-//   }
-// };
-//
-//
-// template<> struct byte_set<4> {
-//   std::uint32_t data_;
-//   bool operator==(const byte_set &other) const {
-//     return data_ == other.data_;
-//   }
-//   friend std::size_t hash_value(const byte_set<4> &b) {
-//     return std::hash<std::uint32_t>{}(b.data_);
-//   }
-// };
-//
-//
-// template<> struct byte_set<8>  {
-//   std::uint64_t data_;
-//   bool operator==(const byte_set &other) const {
-//     return data_ == other.data_;
-//   }
-//   friend std::size_t hash_value(const byte_set<8> &b) {
-//     return std::hash<std::uint64_t>{}(b.data_);
-//   }
-// };
+
+template<> struct byte_set<1> {
+  using I = std::int8_t;
+  I data_;
+  byte_set() {};
+  byte_set(void* d) { auto p = (I* )d; data_ = p[0]; };
+  bool operator==(const byte_set &other) const {
+    return data_ == other.data_;
+  }
+  friend std::size_t hash_value(const byte_set<1> &b) {
+    return std::hash<I>{}(b.data_);
+  }
+};
+
+
+template<> struct byte_set<2> {
+  using I = std::int16_t;
+  I data_;
+  byte_set() {};
+  byte_set(void* d) { auto p = (I* )d; data_ = p[0]; };
+  bool operator==(const byte_set &other) const {
+    return data_ == other.data_;
+  }
+  friend std::size_t hash_value(const byte_set<2> &b) {
+    return std::hash<I>{}(b.data_);
+  }
+};
+
+
+template<> struct byte_set<4> {
+  using I = std::int32_t;
+  I data_;
+  byte_set() {};
+  byte_set(void* d) { auto p = (I* )d; data_ = p[0]; };
+  bool operator==(const byte_set &other) const {
+    return data_ == other.data_;
+  }
+  friend std::size_t hash_value(const byte_set<4> &b) {
+    return std::hash<I>{}(b.data_);
+  }
+};
+
+
+template<> struct byte_set<8> {
+  using I = std::int64_t;
+  I data_;
+  byte_set() {};
+  byte_set(void* d) { auto p = (I* )d; data_ = p[0]; };
+  bool operator==(const byte_set &other) const {
+    return data_ == other.data_;
+  }
+  friend std::size_t hash_value(const byte_set<8> &b) {
+    return std::hash<I>{}(b.data_);
+  }
+};

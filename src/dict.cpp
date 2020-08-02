@@ -23,6 +23,7 @@ template <int T> byte_set<T> byte_set_from_pyobject(
 struct dict_ {
   virtual ~dict_() = default;
   virtual py::array getitem(py::array) = 0;
+  virtual void setitem(py::array, py::array) = 0;
   virtual py::array keys() = 0;
   virtual py::array_t<bool> contains(py::array) = 0;
   virtual py::size_t len() = 0;
@@ -31,24 +32,15 @@ struct dict_ {
 
 template <typename K, typename T> struct dict_typed_: dict_ {
 
-  dict_typed_(py::array keys, py::array data, T fill) {
-    py::buffer_info kinfo = keys.request();
-    K *kptr = (K*)(kinfo.ptr);
-    py::buffer_info dinfo = data.request();
-    T *dptr = (T*)(dinfo.ptr);
-    ktype_ = py::dtype(kinfo);
-    dtype_ = py::dtype(dinfo);
+  dict_typed_(py::dtype ktype, py::dtype dtype, T fill) {
+    ktype_ = ktype;
+    dtype_ = dtype;
     fill_ = fill;
-    map_.reserve(kinfo.size);
-    if (kinfo.size != dinfo.size)
-        throw std::runtime_error("Input shapes must match");
-    for(int i = 0; i < kinfo.size; i++) map_.emplace(kptr[i], dptr[i]);
   };
 
   py::array getitem(py::array keys) {
     py::buffer_info kinfo = keys.request();
-    if(!py::dtype(kinfo).is(ktype_))
-      throw std::runtime_error("Keys dtype doesn't match containers key dtype");
+    assert (ktype_.is(py::dtype(kinfo)));
     K *kptr = (K*)(kinfo.ptr);
     auto strides = kinfo.strides;
     for(auto& s : strides) {
@@ -67,14 +59,22 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     return data;
   };
 
+  void setitem(py::array keys, py::array data) {
+    py::buffer_info kinfo = keys.request();
+    py::buffer_info dinfo = data.request();
+    assert (kinfo.size == dinfo.size);
+    assert (ktype_.is(py::dtype(kinfo)));
+    assert (dtype_.is(py::dtype(dinfo)));
+    K *kptr = (K*)(kinfo.ptr);
+    T *dptr = (T*)(dinfo.ptr);
+    for(int i = 0; i < kinfo.size; i++) map_.emplace(kptr[i], dptr[i]);
+  };
+
   py::array keys() {
     auto keys = py::array(ktype_, {map_.size()}, {ktype_.itemsize()});
     py::buffer_info kinfo = keys.request();
     K *kptr = (K*)(kinfo.ptr);
-    for(const auto& p: map_) {
-      kptr[0] = p.first;
-      ++kptr;
-    }
+    for(const auto& p: map_) { kptr[0] = p.first; ++kptr; }
     return keys;
   };
 
@@ -103,38 +103,52 @@ template <typename K, typename T> struct dict_typed_: dict_ {
 
 
 template <int ...> struct IntList {};
-
 template<int ...N> [[ noreturn ]]std::unique_ptr<dict_> init_dict_(
-    py::array k, py::array d, py::object o, IntList<>, IntList<N...>) {
+    py::dtype k, py::dtype d, py::object o, IntList<>, IntList<N...>) {
   throw std::invalid_argument("Data type not supported");
 }
 template<int ...N> [[ noreturn ]]std::unique_ptr<dict_> init_dict_(
-    py::array k, py::array d, py::object o, IntList<N...>, IntList<>) {
+    py::dtype k, py::dtype d, py::object o, IntList<N...>, IntList<>) {
   throw std::invalid_argument("Data type not supported");
 }
 template <int I, int ...N, int J, int ...M>
 std::unique_ptr<dict_> init_dict_(
-    py::array k, py::array d, py::object o, IntList<I, N...>, IntList<J, M...>) {
-  py::buffer_info kinfo = k.request();
-  py::buffer_info dinfo = d.request();
-  if (I != kinfo.itemsize) {
+    py::dtype k, py::dtype d, py::object o, IntList<I, N...>, IntList<J, M...>) {
+  if (I != k.itemsize()) {
     return init_dict_(k, d, o, IntList<N...>(), IntList<J, M...>()); }
-  if (J != dinfo.itemsize) {
+  if (J != d.itemsize()) {
     return init_dict_(k, d, o, IntList<I, N...>(), IntList<M...>()); }
-  byte_set<J> fill = byte_set_from_pyobject<J>(o, py::dtype(dinfo));
+  byte_set<J> fill = byte_set_from_pyobject<J>(o, d);
   return std::make_unique<dict_typed_<byte_set<I>, byte_set<J> > >(k, d, fill);
 };
 
 
+std::unique_ptr<dict_> init_dict_dtype_(py::dtype k, py::dtype d, py::object o) {
+  return init_dict_(k, d, o, IntList<1, 2, 4, 8, 16, 32>(), IntList<1, 2, 4, 8, 16, 32>());
+};
+
+
+std::unique_ptr<dict_> init_dict_array_(py::array k, py::array d, py::object o) {
+  py::buffer_info kinfo = k.request();
+  py::buffer_info dinfo = d.request();
+  auto ret_ = init_dict_dtype_(py::dtype(kinfo), py::dtype(dinfo), o);
+  ret_->setitem(k, d);
+  return ret_;
+}
+
 PYBIND11_MODULE(vasapy, m) {
     py::class_<dict_>(m, "dict")
         .def(py::init(
-          [](py::array k, py::array d, py::object o) {
-            return init_dict_(k, d, o, IntList<1, 2, 4, 8, 16, 32>(),
-                              IntList<1, 2, 4, 8, 16, 32>());
-          }), py::arg("keys"), py::arg("data"), py::arg("fill") = 0)
+          [](py::dtype k, py::dtype d, py::object o) {
+            return init_dict_dtype_(k, d, o);
+          }), py::arg("ktype"), py::arg("dtype"), py::arg("fill") = 0)
+          .def(py::init(
+            [](py::array k, py::array d, py::object o) {
+              return init_dict_array_(k, d, o);
+            }), py::arg("keys"), py::arg("data"), py::arg("fill") = 0)
         .def("__len__", &dict_::len)
         .def("__getitem__", &dict_::getitem, py::arg("keys"))
+        .def("__setitem__", &dict_::setitem, py::arg("keys"), py::arg("data"))
         .def("contains", &dict_::contains, py::arg("keys"))
         .def("keys", &dict_::keys);
 };
