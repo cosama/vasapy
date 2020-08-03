@@ -26,8 +26,11 @@ struct dict_ {
   virtual py::array getitem(py::array) = 0;
   virtual void setitem(py::array, py::array) = 0;
   virtual py::array keys() = 0;
+  virtual py::array values() = 0;
   virtual py::array_t<bool> contains(py::array) = 0;
+  virtual bool contains_all(py::array) = 0;
   virtual py::size_t len() = 0;
+  virtual void update(dict_ &) = 0;
   py::dtype dtype_;
   py::dtype ktype_;
 };
@@ -52,7 +55,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     auto data = py::array(dtype_, kinfo.shape, strides);
     py::buffer_info dinfo = data.request();
     T *dptr = (T*)(dinfo.ptr);
-    for(int i = 0; i < kinfo.size; i++) {
+    for(int i = 0; i < kinfo.size; ++i) {
       auto d = map_.find(kptr[i]);
       if(d == map_.end())
         dptr[i] = fill_;
@@ -73,7 +76,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     auto data = py::array(dtype_, kinfo.shape, strides);
     py::buffer_info dinfo = data.request();
     T *dptr = (T*)(dinfo.ptr);
-    for(int i = 0; i < kinfo.size; i++) { dptr[i] = map_[kptr[i]]; }
+    for(int i = 0; i < kinfo.size; ++i) { dptr[i] = map_.at(kptr[i]); }
     return data;
   };
 
@@ -85,7 +88,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     assert (dtype_.is(py::dtype(dinfo)));
     K *kptr = (K*)(kinfo.ptr);
     T *dptr = (T*)(dinfo.ptr);
-    for(int i = 0; i < kinfo.size; i++) map_.emplace(kptr[i], dptr[i]);
+    for(int i = 0; i < kinfo.size; ++i) map_[kptr[i]] = dptr[i]; //map_.emplace(kptr[i], dptr[i]);
   };
 
   py::array keys() {
@@ -96,6 +99,14 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     return keys;
   };
 
+  py::array values() {
+    auto data = py::array(dtype_, {map_.size()}, {dtype_.itemsize()});
+    py::buffer_info dinfo = data.request();
+    T *dptr = (T*)(dinfo.ptr);
+    for(const auto& p: map_) { dptr[0] = p.second; ++dptr; }
+    return data;
+  };
+
   py::array_t<bool> contains(py::array keys) {
     py::buffer_info kinfo = keys.request();
     K *kptr = (K*)(kinfo.ptr);
@@ -103,15 +114,31 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     py::buffer_info rinfo = ret.request();
     bool *rptr = (bool*)(rinfo.ptr);
     auto end = map_.end();
-    for(int i = 0; i < kinfo.size; i++) {
+    for(int i = 0; i < kinfo.size; ++i) {
       rptr[i] = map_.find(kptr[i]) != end;
     }
     return ret;
   };
 
+  bool contains_all(py::array keys) {
+    py::buffer_info kinfo = keys.request();
+    K *kptr = (K*)(kinfo.ptr);
+    auto end = map_.end();
+    for(int i = 0; i < kinfo.size; ++i) {
+      if(map_.find(kptr[i]) == end) return false;
+    }
+    return true;
+  };
+
   py::size_t len() {
     return map_.size();
   };
+
+  void update(dict_ &other) {
+    // dynamic cast is not optimal but probably best we can do here
+    auto o = dynamic_cast<dict_typed_*>(&other);
+    for(auto &p : o->map_) map_[p.first] = p.second;
+  }
 
   phmap::flat_hash_map<K, T> map_;
 };
@@ -160,11 +187,14 @@ PYBIND11_MODULE(vasapy, m) {
             [](py::array k, py::array d) { return init_dict_array_(k, d); }
         ), py::arg("keys"), py::arg("data"))
         .def("__len__", &dict_::len)
-        .def("get", &dict_::get, py::arg("keys"), py::arg("default"))
         .def("__getitem__", &dict_::getitem, py::arg("keys"))
         .def("__setitem__", &dict_::setitem, py::arg("keys"), py::arg("data"))
         .def_readonly("ktype", &dict_::ktype_)
         .def_readonly("dtype", &dict_::dtype_)
+        .def("__contains__", &dict_::contains_all, py::arg("keys"))
+        .def("get", &dict_::get, py::arg("keys"), py::arg("default"))
         .def("contains", &dict_::contains, py::arg("keys"))
-        .def("keys", &dict_::keys);
+        .def("keys", &dict_::keys)
+        .def("values", &dict_::values)
+        .def("update", &dict_::update, py::arg("other"));
 };

@@ -46,45 +46,110 @@ nptypes = [
     # np.complex256
 ]
 
-@pytest.mark.parametrize("dtype", nptypes)
-@pytest.mark.parametrize("ktype", nptypes)
-def test_dict_arrays(dtype, ktype):
-    if ktype == np.bool_ or ktype == np.bool8:
-        return
-    keys = np.arange(100, dtype=ktype)
-    data = (np.random.rand(100)*100).astype(dtype)
-    print(ktype, dtype)
-    hd = vp.dict(keys, data)
-    d2 = hd[keys]
 
-    assert d2.dtype == dtype, "{} not {}".format(d2.dtype, ktype)
-
-    assert all(data == d2), "{} not {} for dtype {}".format(data, d2, dtype)
-
-    assert all(np.sort(hd.keys()) == np.sort(keys))
-
-    assert len(hd) == 100
-
-    assert np.all(hd.contains(keys[[10, 20, 30, 40, 50]]) == True)
-
-    assert np.all(hd.contains(np.array([101, 102], dtype=ktype)) == False)
-
-
-@pytest.mark.parametrize("dtype", nptypes)
-@pytest.mark.parametrize("ktype", nptypes)
-def test_dict_dtypes(dtype, ktype):
+@pytest.fixture
+def dict_0_(ktype, dtype):
     ktype_ = np.dtype(ktype)
     dtype_ = np.dtype(dtype)
-    hd = vp.dict(ktype_, dtype_)
-    assert len(hd) == 0
-    assert ktype_ == hd.ktype
-    assert dtype_ == hd.dtype
+    return vp.dict(ktype_, dtype_), ktype_, dtype_
+
+
+@pytest.fixture
+def dict_1_(ktype, dtype):
+    keys = np.array([0], dtype=ktype)
+    data = np.array([1], dtype=dtype)
+    return vp.dict(keys, data), np.dtype(ktype), np.dtype(dtype), keys, data
+
+
+@pytest.fixture
+def dict_10_(ktype, dtype):
+    if ktype == np.bool_ or ktype == np.bool8:
+        pytest.xfail("Boolean dict can only have 2 elements")
+    keys = np.arange(10, dtype=ktype)
+    data = (np.random.rand(10)*100).astype(dtype)
+    return vp.dict(keys, data), np.dtype(ktype), np.dtype(dtype), keys, data
 
 
 @pytest.mark.parametrize("dtype", nptypes)
 @pytest.mark.parametrize("ktype", nptypes)
-def test_dict_fill(dtype, ktype):
-    fill = dtype(1.0)
-    hd = vp.dict(np.dtype(ktype), np.dtype(dtype))
-    tfill = hd.get(np.array([0], dtype=ktype), fill)[0]
-    assert tfill == fill, "{} not {}".format(tfill, fill)
+class TestDict:
+    def test_init_dtypes(self, dict_0_):
+        hd, ktype_, dtype_ = dict_0_
+        assert ktype_ == hd.ktype
+        assert dtype_ == hd.dtype
+
+    def test_init_arrays(self, dict_10_):
+        hd, ktype_, dtype_, _, _ = dict_10_
+        assert ktype_ == hd.ktype
+        assert dtype_ == hd.dtype
+
+    def test_len(self, dict_0_, dict_10_):
+        assert len(dict_0_[0]) == 0
+        assert len(dict_10_[0]) == 10
+
+    def test_keys(self, dict_10_):
+        hd, _, _, keys_in, data_in = dict_10_
+        keys_out = hd.keys()
+        ind_in = np.argsort(keys_in)
+        ind_out = np.argsort(keys_out)
+        assert np.all(keys_in[ind_in] == keys_out[ind_out])
+
+    def test_values(self, dict_10_):
+        hd, _, _, keys_in, data_in = dict_10_
+        keys_out = hd.keys()
+        data_out = hd.values()
+        ind_in = np.argsort(keys_in)
+        ind_out = np.argsort(keys_out)
+        assert np.all(data_in[ind_in] == data_out[ind_out])
+
+    def test_getitem(self, dict_10_):
+        hd, _, _, keys_in, data_in = dict_10_
+        keys_out = hd.keys()
+        data_out = hd[keys_out]
+        ind_in = np.argsort(keys_in)
+        ind_out = np.argsort(keys_out)
+        assert np.all(data_in[ind_in] == data_out[ind_out])
+
+    def test_setitem(self, dict_0_, dict_10_):
+        hd, ktype_, dtype_ = dict_0_
+        _, _, _, keys_in, data_in = dict_10_
+        hd[keys_in] = data_in
+        keys_out = hd.keys()
+        data_out = hd[keys_out]
+        ind_in = np.argsort(keys_in)
+        ind_out = np.argsort(keys_out)
+        assert np.all(keys_in[ind_in] == keys_out[ind_out])
+        assert np.all(data_in[ind_in] == data_out[ind_out])
+
+    def test_contains(self, dict_10_):
+        hd, ktype_, _, keys_in, data_in = dict_10_
+        assert np.all(hd.contains(keys_in) == True)
+        assert np.all(hd.contains(np.array([101, 102], dtype=ktype_)) == False)
+
+    def test_get(self, dict_10_):
+        hd, ktype_, dtype_, _, _ = dict_10_
+        fill = dtype_.type(1.0)
+        tfill = hd.get(np.array([100], dtype=ktype_), fill)[0]
+        assert tfill == fill
+
+    def test_update(self, dict_0_, dict_10_):
+        hd1, _, _ = dict_0_
+        hd2, _, _, _, _ = dict_10_
+        hd1.update(hd2)
+        assert len(hd1) == len(hd2)
+        k1 = hd1.keys()
+        k2 = hd2.keys()
+        i1 = np.argsort(k1)
+        i2 = np.argsort(k2)
+        assert np.all(k1[i1] == k2[i2])
+        assert np.all((hd1.values())[i1] == (hd2.values())[i2])
+
+    def test_key_access_fails(self, dict_1_):
+        hd, ktype_, dtype_, _, _ = dict_1_
+        with pytest.raises(IndexError):
+            hd[np.array(np.array([0, 1], dtype=ktype_))]
+
+    def test_key_in(self, dict_1_):
+        hd, ktype_, dtype_, keys, _ = dict_1_
+        assert keys in hd
+        assert np.array([0, 1], dtype=ktype_) not in hd
