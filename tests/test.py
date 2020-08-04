@@ -49,16 +49,14 @@ nptypes = [
 
 @pytest.fixture
 def dict_0_(ktype, dtype):
-    ktype_ = np.dtype(ktype)
-    dtype_ = np.dtype(dtype)
-    return vp.dict(ktype_, dtype_), ktype_, dtype_
+    return vp.dict(ktype, dtype), np.dtype(ktype), np.dtype(dtype)
 
 
 @pytest.fixture
 def dict_1_(ktype, dtype):
     keys = np.array([0], dtype=ktype)
     data = np.array([1], dtype=dtype)
-    return vp.dict(keys, data), np.dtype(ktype), np.dtype(dtype), keys, data
+    return vp.dict(keys, data), keys.dtype, data.dtype, keys, data
 
 
 @pytest.fixture
@@ -67,14 +65,33 @@ def dict_10_(ktype, dtype):
         pytest.xfail("Boolean dict can only have 2 elements")
     keys = np.arange(10, dtype=ktype)
     data = (np.random.rand(10)*100).astype(dtype)
-    return vp.dict(keys, data), np.dtype(ktype), np.dtype(dtype), keys, data
+    return vp.dict(keys, data), keys.dtype, data.dtype, keys, data
 
 
 @pytest.mark.parametrize("dtype", nptypes)
 @pytest.mark.parametrize("ktype", nptypes)
 class TestDict:
-    def test_init_dtypes(self, dict_0_):
-        hd, ktype_, dtype_ = dict_0_
+    def helper_check(self, keys_in, keys_out, data_in=None, data_out=None,
+                     sort=True):
+        if sort:
+            ind_in = np.argsort(keys_in)
+            ind_out = np.argsort(keys_out)
+            keys_in, keys_out = keys_in[ind_in], keys_out[ind_out]
+            if data_in is not None and data_out is not None:
+                data_in, data_out = data_in[ind_in], data_out[ind_out]
+        assert np.all(np.equal(keys_in, keys_out))
+        if data_in is not None and data_out is not None:
+            assert np.all(np.equal(data_in, data_out))
+
+    def test_init_types(self, ktype, dtype):
+        hd = vp.dict(ktype, dtype)
+        assert np.dtype(ktype) == hd.ktype
+        assert np.dtype(dtype) == hd.dtype
+
+    def test_init_dtypes(self, ktype, dtype):
+        ktype_ = np.dtype(ktype)
+        dtype_ = np.dtype(dtype)
+        hd = vp.dict(ktype_, dtype_)
         assert ktype_ == hd.ktype
         assert dtype_ == hd.dtype
 
@@ -90,25 +107,24 @@ class TestDict:
     def test_keys(self, dict_10_):
         hd, _, _, keys_in, data_in = dict_10_
         keys_out = hd.keys()
-        ind_in = np.argsort(keys_in)
-        ind_out = np.argsort(keys_out)
-        assert np.all(keys_in[ind_in] == keys_out[ind_out])
+        self.helper_check(keys_in, keys_out, sort=True)
 
     def test_values(self, dict_10_):
         hd, _, _, keys_in, data_in = dict_10_
         keys_out = hd.keys()
         data_out = hd.values()
-        ind_in = np.argsort(keys_in)
-        ind_out = np.argsort(keys_out)
-        assert np.all(data_in[ind_in] == data_out[ind_out])
+        self.helper_check(keys_in, keys_out, data_in, data_out, sort=True)
+
+    def test_items(self, dict_10_):
+        hd, _, _, keys_in, data_in = dict_10_
+        keys_out, data_out = hd.items()
+        self.helper_check(keys_in, keys_out, data_in, data_out, sort=True)
 
     def test_getitem(self, dict_10_):
         hd, _, _, keys_in, data_in = dict_10_
         keys_out = hd.keys()
         data_out = hd[keys_out]
-        ind_in = np.argsort(keys_in)
-        ind_out = np.argsort(keys_out)
-        assert np.all(data_in[ind_in] == data_out[ind_out])
+        self.helper_check(keys_in, keys_out, data_in, data_out, sort=True)
 
     def test_setitem(self, dict_0_, dict_10_):
         hd, ktype_, dtype_ = dict_0_
@@ -116,10 +132,27 @@ class TestDict:
         hd[keys_in] = data_in
         keys_out = hd.keys()
         data_out = hd[keys_out]
-        ind_in = np.argsort(keys_in)
-        ind_out = np.argsort(keys_out)
-        assert np.all(keys_in[ind_in] == keys_out[ind_out])
-        assert np.all(data_in[ind_in] == data_out[ind_out])
+        self.helper_check(keys_in, keys_out, data_in, data_out, sort=True)
+
+    def test_delitem(self, dict_10_):
+        hd, _, _, keys_in, data_in = dict_10_
+        del hd[keys_in[0:5]]
+        assert len(hd) == 5
+        keys_out, data_out = hd.items()
+        self.helper_check(keys_in[5:], keys_out, data_in[5:], data_out, sort=True)
+
+    def test_pop(self, dict_10_):
+        hd, _, _, keys_in, data_in = dict_10_
+        data_out = hd.pop(keys_in[:5])
+        assert len(hd) == 5
+        self.helper_check(keys_in[:5], keys_in[:5], data_in[:5], data_out, sort=False)
+        keys_out, data_out = hd.items()
+        self.helper_check(keys_in[5:], keys_out, data_in[5:], data_out, sort=True)
+
+    def test_clear(self, dict_1_):
+        hd, _, _, _, _ = dict_1_
+        hd.clear()
+        assert len(hd) == 0
 
     def test_contains(self, dict_10_):
         hd, ktype_, _, keys_in, data_in = dict_10_
@@ -137,12 +170,9 @@ class TestDict:
         hd2, _, _, _, _ = dict_10_
         hd1.update(hd2)
         assert len(hd1) == len(hd2)
-        k1 = hd1.keys()
-        k2 = hd2.keys()
-        i1 = np.argsort(k1)
-        i2 = np.argsort(k2)
-        assert np.all(k1[i1] == k2[i2])
-        assert np.all((hd1.values())[i1] == (hd2.values())[i2])
+        k1, d1 = hd1.items()
+        k2, d2 = hd2.items()
+        self.helper_check(k1, k2, d1, d2, sort=True)
 
     def test_key_access_fails(self, dict_1_):
         hd, ktype_, dtype_, _, _ = dict_1_
