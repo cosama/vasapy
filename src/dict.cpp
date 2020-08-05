@@ -7,26 +7,13 @@
 
 namespace py = pybind11;
 
-// Function to convert any python object into a byte_set by converting it first
-// into a numpy array. Uses lots of python code, couldn't come up with
-// something better.
-template <typename T> T from_pyobject_(
-    const py::object &pyinp, const py::dtype &dtype) {
-  py::object np = py::module::import("numpy");
-  py::object array = np.attr("array");
-  py::object ap = array(pyinp, py::cast(&dtype));
-  py::array ac = ap.cast<py::array>();
-  py::buffer_info info = ac.request();
-  return T(info.ptr);
-};
 
 struct dict_ {
   virtual ~dict_() = default;
   virtual void clear() = 0;
   virtual py::array_t<bool> contains(py::array) = 0;
-  virtual bool contains_all(py::array) = 0;
   virtual void delitem(py::array) = 0;
-  virtual py::array get(py::array, py::object) = 0;
+  virtual py::array get(py::array, py::array) = 0;
   virtual py::array getitem(py::array) = 0;
   virtual std::pair<py::array, py::array> items() = 0;
   virtual py::array keys() = 0;
@@ -65,16 +52,6 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     return ret;
   };
 
-  bool contains_all(py::array keys) {
-    py::buffer_info kinfo = keys.request();
-    K *kptr = (K*)(kinfo.ptr);
-    auto end = map_.end();
-    for(int i = 0; i < kinfo.size; ++i) {
-      if(map_.find(kptr[i]) == end) return false;
-    }
-    return true;
-  };
-
   void delitem(py::array keys) {
     py::buffer_info kinfo = keys.request();
     assert (ktype_.is(py::dtype(kinfo)));
@@ -82,10 +59,10 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     for(int i = 0; i < kinfo.size; ++i) { map_.erase(kptr[i]); }
   };
 
-  py::array get(py::array keys, py::object fill) {
+  py::array get(py::array keys, py::array fill) {
     py::buffer_info kinfo = keys.request();
     assert (ktype_.is(py::dtype(kinfo)));
-    auto fill_ = from_pyobject_<T>(fill, dtype_);
+    T fill_(fill.request().ptr);
     K *kptr = (K*)(kinfo.ptr);
     auto strides = kinfo.strides;
     for(auto& s : strides) {
@@ -202,35 +179,13 @@ std::unique_ptr<dict_> init_dict_(
 };
 
 
-// probably should just be done in python itself?
-std::unique_ptr<dict_> init_dict_helper_(py::object k, py::object d) {
-  py::dtype ktype_;
-  py::dtype dtype_;
-  bool is_array = py::isinstance<py::array>(k) && py::isinstance<py::array>(d);
-  if(is_array) {
-    py::buffer_info kinfo = k.cast<py::array>().request();
-    py::buffer_info dinfo = d.cast<py::array>().request();
-    ktype_ = py::dtype(kinfo);
-    dtype_ = py::dtype(dinfo);
-  }
-  else {
-    py::object type = py::module::import("numpy").attr("dtype");
-    ktype_ = type(k).cast<py::dtype>();
-    dtype_ = type(d).cast<py::dtype>();
-  };
-  auto ret_ = init_dict_(ktype_, dtype_, IntList<1, 2, 4, 8, 16, 32>(),
-                         IntList<1, 2, 4, 8, 16, 32>());
-  if(is_array) ret_->setitem(k, d);
-  return ret_;
-};
-
-
-PYBIND11_MODULE(vasapy, m) {
-    py::class_<dict_>(m, "dict")
+PYBIND11_MODULE(_vasapy, m) {
+    py::class_<dict_>(m, "_dict")
         .def(py::init(
-          [](py::object k, py::object d) { return init_dict_helper_(k, d); }
+          [](py::dtype k, py::dtype d) {
+            return init_dict_(k, d, IntList<1, 2, 4, 8, 16, 32>(), IntList<1, 2, 4, 8, 16, 32>());
+          }
         ), py::arg("keys"), py::arg("data"))
-        .def("__contains__", &dict_::contains_all, py::arg("keys"))
         .def("__delitem__", &dict_::delitem, py::arg("keys"))
         .def("__getitem__", &dict_::getitem, py::arg("keys"))
         .def("__len__", &dict_::len)

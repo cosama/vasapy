@@ -157,13 +157,17 @@ class TestDict:
     def test_contains(self, dict_10_):
         hd, ktype_, _, keys_in, data_in = dict_10_
         assert np.all(hd.contains(keys_in) == True)
-        assert np.all(hd.contains(np.array([101, 102], dtype=ktype_)) == False)
+        assert np.all(hd.contains(np.array([101, 102])) == False)
 
     def test_get(self, dict_10_):
-        hd, ktype_, dtype_, _, _ = dict_10_
-        fill = dtype_.type(1.0)
-        tfill = hd.get(np.array([100], dtype=ktype_), fill)[0]
-        assert tfill == fill
+        hd, ktype_, dtype_, keys, data = dict_10_
+        value = hd.get(keys[5:6])
+        assert value[0] == data[5]
+        value = hd.get(np.array([100]))
+        assert value[0] == dtype_.type(0)
+        fill = 1.0
+        value = hd.get(np.array([100]), fill)
+        assert value[0] == dtype_.type(fill)
 
     def test_update(self, dict_0_, dict_10_):
         hd1, _, _ = dict_0_
@@ -177,9 +181,9 @@ class TestDict:
     def test_key_access_fails(self, dict_1_):
         hd, ktype_, dtype_, _, _ = dict_1_
         with pytest.raises(IndexError):
-            hd[np.array(np.array([0, 1], dtype=ktype_))]
+            hd[np.array(np.array([0, 1]))]
 
     def test_key_in(self, dict_1_):
         hd, ktype_, dtype_, keys, _ = dict_1_
         assert keys in hd
-        assert np.array([0, 1], dtype=ktype_) not in hd
+        assert np.array([0, 1]) not in hd

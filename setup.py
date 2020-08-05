@@ -22,7 +22,7 @@ class get_pybind_include(object):
 
 ext_modules = [
     Extension(
-        'vasapy',
+        '_vasapy',
         sorted(['src/dict.cpp']),
         include_dirs=[
             # Path to pybind11 headers
