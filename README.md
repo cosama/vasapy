@@ -35,7 +35,7 @@ ind = np.arange(0, 200)
 print(d.get(ind, 0))
 ```
 
-# Installation
+## Installation
 
 The package is available on pip.
 
@@ -43,5 +43,5 @@ The package is available on pip.
 pip install vasapy --user
 ```
 
-If it doesn't build try to install pybind11 `pip install pybind11 --user` or
-install the python developement files with your package manager.
+If it doesn't build try to install pybind11 `pip install pybind11 --user` and
+install the python development files with your package manager.
