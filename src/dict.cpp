@@ -140,12 +140,13 @@ template <typename K, typename T> struct dict_typed_: dict_ {
   void setitem(py::array keys, py::array data) {
     py::buffer_info kinfo = keys.request();
     py::buffer_info dinfo = data.request();
-    assert (kinfo.size == dinfo.size);
+    assert (kinfo.size == dinfo.size || dinfo.size == 1);
     assert (ktype_.is(py::dtype(kinfo)));
     assert (dtype_.is(py::dtype(dinfo)));
     K *kptr = (K*)(kinfo.ptr);
     T *dptr = (T*)(dinfo.ptr);
-    for(int i = 0; i < kinfo.size; ++i) map_[kptr[i]] = dptr[i];
+    for(int i = 0; i < kinfo.size; ++i)
+      map_[kptr[i]] = (dinfo.size == 1) ? dptr[0] : dptr[i];
   };
 
   void update(dict_ &other) {
