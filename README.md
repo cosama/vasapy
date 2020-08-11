@@ -1,7 +1,7 @@
-vasapy (Vectorized ASsociative Arrays for PYthon)
+vasapy - The spice to your daily dose of numpy
 =================================================
 
-This is a lightweight wrapper of [parallel_hashmap](https://github.com/greg7mdp/parallel-hashmap.git)
+vasapy, short for 'Vectorized ASsociative Arrays for PYthon' is a lightweight wrapper of [parallel_hashmap](https://github.com/greg7mdp/parallel-hashmap.git)
 using [pybind11](https://github.com/pybind/pybind11) to allow for vectorized
 operation on dictionaries (and maybe later sets).
 
