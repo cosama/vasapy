@@ -8,7 +8,7 @@ operation on dictionaries (and maybe later sets).
 The dictionary behave like the python default dictionary with most methods
 implemented, but additionally all methods can also use numpy arrays, doing
 the iterations over array elements internally in C++ way more efficiently. It
-supports most of the numpy types, (128/256 byte types are not tested and might
+supports most of the numpy types (128/256 byte types are not tested and might
 behave unexpectedly).
 
 ```python
@@ -34,3 +34,14 @@ d[101] = 0
 ind = np.arange(0, 200)
 print(d.get(ind, 0))
 ```
+
+# Installation
+
+The package is available on pip.
+
+```
+pip install vasapy --user
+```
+
+If it doesn't build try to install pybind11 `pip install pybind11 --user` or
+install the python developement files with your package manager.
