@@ -1,4 +1,5 @@
 #include <parallel_hashmap/phmap_utils.h>
+//#include <stdio.h>
 
 template <int T> struct byte_set {
   char data_[T];
@@ -9,7 +10,11 @@ template <int T> struct byte_set {
   }
   friend std::size_t hash_value(const byte_set<T> &b) {
     return std::hash<std::string>{}(std::string(b.data_, T));
-  }
+  };
+//  void print() {
+//    for(int i=0; i<T; i++) fprintf(stdout, "%02hhx ", data_[i]);
+//    fprintf(stdout, "\n");
+// };
 };
 
 

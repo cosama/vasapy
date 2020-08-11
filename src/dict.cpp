@@ -18,7 +18,7 @@ struct dict_ {
   virtual std::pair<py::array, py::array> items() = 0;
   virtual py::array keys() = 0;
   virtual py::size_t len() = 0;
-  virtual py::array pop(py::array) = 0;
+  virtual std::pair<py::array, py::array> popitem() = 0;
   virtual void setitem(py::array, py::array) = 0;
   virtual void update(dict_ &) = 0;
   virtual py::array values() = 0;
@@ -61,9 +61,12 @@ template <typename K, typename T> struct dict_typed_: dict_ {
 
   py::array get(py::array keys, py::array fill) {
     py::buffer_info kinfo = keys.request();
+    py::buffer_info finfo = fill.request();
     assert (ktype_.is(py::dtype(kinfo)));
-    T fill_(fill.request().ptr);
+    assert (dtype_.is(py::dtype(finfo)));
+    T *fptr = (T*)(finfo.ptr);
     K *kptr = (K*)(kinfo.ptr);
+    assert (kinfo.size == finfo.size || finfo.size == 1);
     auto strides = kinfo.strides;
     for(auto& s : strides) {
       double se = s / kinfo.itemsize; s = se * dtype_.itemsize();
@@ -74,7 +77,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     for(int i = 0; i < kinfo.size; ++i) {
       auto d = map_.find(kptr[i]);
       if(d == map_.end())
-        dptr[i] = fill_;
+        dptr[i] = (finfo.size == 1) ? fptr[0] : fptr[i];
       else
         dptr[i] = d->second;
     }
@@ -88,11 +91,11 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     auto strides = kinfo.strides;
     for(auto& s : strides) {
       double se = s / kinfo.itemsize; s = se * dtype_.itemsize();
-    }
+    };
     auto data = py::array(dtype_, kinfo.shape, strides);
     py::buffer_info dinfo = data.request();
     T *dptr = (T*)(dinfo.ptr);
-    for(int i = 0; i < kinfo.size; ++i) { dptr[i] = map_.at(kptr[i]); }
+    for(int i = 0; i < kinfo.size; ++i) dptr[i] = map_.at(kptr[i]);
     return data;
   };
 
@@ -118,14 +121,20 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     return keys;
   };
 
-  py::array pop(py::array keys) {
-    py::array data = getitem(keys);
-    delitem(keys);
-    return data;
-  };
-
   py::size_t len() {
     return map_.size();
+  };
+
+  std::pair<py::array, py::array> popitem() {
+    auto keys = py::array(ktype_, {1}, {ktype_.itemsize()});
+    auto data = py::array(dtype_, {1}, {dtype_.itemsize()});
+    K *kptr = (K*)(keys.request().ptr);
+    T *dptr = (T*)(data.request().ptr);
+    auto p = map_.begin();
+    kptr[0] = p->first;
+    dptr[0] = p->second;
+    map_.erase(p->first);
+    return std::pair<py::array, py::array>(keys, data);
   };
 
   void setitem(py::array keys, py::array data) {
@@ -136,7 +145,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     assert (dtype_.is(py::dtype(dinfo)));
     K *kptr = (K*)(kinfo.ptr);
     T *dptr = (T*)(dinfo.ptr);
-    for(int i = 0; i < kinfo.size; ++i) map_[kptr[i]] = dptr[i]; //map_.emplace(kptr[i], dptr[i]);
+    for(int i = 0; i < kinfo.size; ++i) map_[kptr[i]] = dptr[i];
   };
 
   void update(dict_ &other) {
@@ -195,7 +204,7 @@ PYBIND11_MODULE(_vasapy, m) {
         .def("get", &dict_::get, py::arg("keys"), py::arg("default"))
         .def("items", &dict_::items)
         .def("keys", &dict_::keys)
-        .def("pop", &dict_::pop, py::arg("keys"))
+        .def("popitem", &dict_::popitem)
         .def("update", &dict_::update, py::arg("other"))
         .def("values", &dict_::values)
         .def_readonly("ktype", &dict_::ktype_)
