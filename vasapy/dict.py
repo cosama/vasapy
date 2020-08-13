@@ -26,8 +26,7 @@ class dict(_dict):
             self[keys] = data
 
     def __contains__(self, keys):
-        ret = np.all(self.contains(np.asarray(keys, dtype=self.ktype)))
-        return ret.item() if np.isscalar(keys) else ret
+        return np.all(self.contains(np.asarray(keys, dtype=self.ktype)))
 
     def __delitem__(self, keys):
         super().__delitem__(np.asarray(keys, dtype=self.ktype))

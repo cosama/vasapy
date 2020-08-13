@@ -189,7 +189,7 @@ std::unique_ptr<dict_> init_dict_(
 };
 
 
-PYBIND11_MODULE(_vasapy, m) {
+void init_vasapy_dict(py::module &m) {
     py::class_<dict_>(m, "_dict")
         .def(py::init(
           [](py::dtype k, py::dtype d) {
