@@ -5,6 +5,7 @@
 #include <pybind11/numpy.h>
 #include <stdexcept>
 
+
 namespace py = pybind11;
 
 
@@ -24,7 +25,7 @@ struct set_ {
 };
 
 
-template <typename T> struct set_typed_:set_ {
+template <typename T, template <typename> class M > struct set_typed_: set_ {
 
   set_typed_(py::dtype dtype) {
     dtype_ = dtype;
@@ -98,29 +99,28 @@ template <typename T> struct set_typed_:set_ {
     for(auto &p : o->map_) map_.emplace(p);
   };
 
-  phmap::flat_hash_set<T> map_;
+  M<T> map_;
 };
 
 
 template <int ...> struct IntList {};
-template<int ...N> [[ noreturn ]]std::unique_ptr<set_> init_set_(
+template<template<typename> class M, int ...N> [[ noreturn ]]std::unique_ptr<set_> init_set_(
     py::dtype d, IntList<>) {
   throw std::invalid_argument("Element type not supported");
 };
-template <int I, int ...N>
+template <template <typename> class M, int I, int ...N>
 std::unique_ptr<set_> init_set_(py::dtype d, IntList<I, N...>) {
   if (I != d.itemsize()) {
-    return init_set_(d, IntList<N...>());
+    return init_set_<M>(d, IntList<N...>());
   }
-  return std::make_unique<set_typed_<byte_set<I> > >(d);
+  return std::make_unique<set_typed_<byte_set<I>, M> >(d);
 };
 
-
-void init_vasapy_set(py::module &m) {
-    py::class_<set_>(m, "_set", py::buffer_protocol())
+template<template <typename> class M> void init_vasapy_set(py::module &m, const char *name) {
+    py::class_<set_>(m, name, py::buffer_protocol())
         .def(py::init(
           [](py::dtype d) {
-            return init_set_(d, IntList<1, 2, 4, 8, 16, 32>());
+            return init_set_<M>(d, IntList<1, 2, 4, 8, 16, 32>());
           }
         ), py::arg("elem"))
         .def("__len__", &set_::len)
@@ -136,3 +136,11 @@ void init_vasapy_set(py::module &m) {
           return other.buffer();
         });
 };
+
+void init_vasapy_unordered_set(py::module &m) {
+  init_vasapy_set<phmap::flat_hash_set>(m, "unordered_set");
+};
+
+// void init_vasapy_sorted_set(py::module &m) {
+//   init_vasapy_set<phmap::btree_set>(m, "sorted_set");
+// };

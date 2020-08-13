@@ -1,7 +1,7 @@
-from _vasapy import _set
+from _vasapy import unordered_set
 import numpy as np
 
-class set(_set):
+class set(unordered_set):
     def __init__(self, elem):
         if isinstance(elem, np.ndarray):
             dtype = elem.dtype
