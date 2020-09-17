@@ -1,7 +1,7 @@
-from _vasapy import _dict
+import _vasapy as _vp
 import numpy as np
 
-class dict(_dict):
+class dict(_vp._dict):
     def __init__(self, keys, data):
         if isinstance(keys, np.ndarray):
             ktype = keys.dtype
@@ -81,3 +81,32 @@ class dict(_dict):
         ret[mask] = self[keys[mask]]
         self[keys[~mask]] = ret[~mask]
         return ret[0] if key_is_scalar else ret
+
+    def update(self, other):
+        keys, data = other.items()
+        self[np.asarray(keys, dtype=self.ktype)] = np.asarray(
+            data, dtype=self.dtype)
+
+    def iadd(self, keys, data, defaults=0):
+        keys = np.asarray(keys, dtype=self.ktype)
+        data = np.asarray(data, dtype=self.dtype)
+        defaults = np.asarray(defaults, dtype=self.dtype)
+        _vp.iadd(self, keys, data, defaults)
+
+    def isub(self, keys, data, defaults=0):
+        keys = np.asarray(keys, dtype=self.ktype)
+        data = np.asarray(data, dtype=self.dtype)
+        defaults = np.asarray(defaults, dtype=self.dtype)
+        _vp.isub(self, keys, data, defaults)
+
+    def imul(self, keys, data, defaults=0):
+        keys = np.asarray(keys, dtype=self.ktype)
+        data = np.asarray(data, dtype=self.dtype)
+        defaults = np.asarray(defaults, dtype=self.dtype)
+        _vp.imul(self, keys, data, defaults)
+
+    def idiv(self, keys, data, defaults=0):
+        keys = np.asarray(keys, dtype=self.ktype)
+        data = np.asarray(data, dtype=self.dtype)
+        defaults = np.asarray(defaults, dtype=self.dtype)
+        _vp.idiv(self, keys, data, defaults)

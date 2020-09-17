@@ -5,6 +5,14 @@
 #include <pybind11/numpy.h>
 #include <stdexcept>
 
+
+#define __NPD_TYPES__ bool, char, \
+                     float, double, long double, \
+                     std::complex<float>, std::complex<double>, std::complex<long double>, \
+                     std::int8_t, std::uint8_t, std::int16_t, std::uint16_t, \
+                     std::int32_t, std::uint32_t, std::int64_t, std::uint64_t
+
+
 namespace py = pybind11;
 
 
@@ -20,7 +28,6 @@ struct dict_ {
   virtual py::size_t len() = 0;
   virtual std::pair<py::array, py::array> popitem() = 0;
   virtual void setitem(py::array, py::array) = 0;
-  virtual void update(dict_ &) = 0;
   virtual py::array values() = 0;
 
   py::dtype dtype_;
@@ -54,7 +61,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
 
   void delitem(py::array keys) {
     py::buffer_info kinfo = keys.request();
-    assert (ktype_.is(py::dtype(kinfo)));
+    assert(ktype_.is(py::dtype(kinfo)));
     K *kptr = (K*)(kinfo.ptr);
     for(int i = 0; i < kinfo.size; ++i) { map_.erase(kptr[i]); }
   };
@@ -62,11 +69,11 @@ template <typename K, typename T> struct dict_typed_: dict_ {
   py::array get(py::array keys, py::array fill) {
     py::buffer_info kinfo = keys.request();
     py::buffer_info finfo = fill.request();
-    assert (ktype_.is(py::dtype(kinfo)));
-    assert (dtype_.is(py::dtype(finfo)));
-    T *fptr = (T*)(finfo.ptr);
+    assert(ktype_.is(py::dtype(kinfo)));
+    assert(dtype_.is(py::dtype(finfo)));
     K *kptr = (K*)(kinfo.ptr);
-    assert (kinfo.size == finfo.size || finfo.size == 1);
+    T *fptr = (T*)(finfo.ptr);
+    assert(kinfo.size == finfo.size || finfo.size == 1);
     auto strides = kinfo.strides;
     for(auto& s : strides) {
       double se = s / kinfo.itemsize; s = se * dtype_.itemsize();
@@ -86,7 +93,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
 
   py::array getitem(py::array keys) {
     py::buffer_info kinfo = keys.request();
-    assert (ktype_.is(py::dtype(kinfo)));
+    assert(ktype_.is(py::dtype(kinfo)));
     K *kptr = (K*)(kinfo.ptr);
     auto strides = kinfo.strides;
     for(auto& s : strides) {
@@ -140,19 +147,13 @@ template <typename K, typename T> struct dict_typed_: dict_ {
   void setitem(py::array keys, py::array data) {
     py::buffer_info kinfo = keys.request();
     py::buffer_info dinfo = data.request();
-    assert (kinfo.size == dinfo.size || dinfo.size == 1);
-    assert (ktype_.is(py::dtype(kinfo)));
-    assert (dtype_.is(py::dtype(dinfo)));
+    assert(kinfo.size == dinfo.size || dinfo.size == 1);
+    assert(ktype_.is(py::dtype(kinfo)));
+    assert(dtype_.is(py::dtype(dinfo)));
     K *kptr = (K*)(kinfo.ptr);
     T *dptr = (T*)(dinfo.ptr);
     for(int i = 0; i < kinfo.size; ++i)
       map_[kptr[i]] = (dinfo.size == 1) ? dptr[0] : dptr[i];
-  };
-
-  void update(dict_ &other) {
-    // dynamic cast is not optimal but probably best we can do here
-    auto o = dynamic_cast<dict_typed_*>(&other);
-    for(auto &p : o->map_) map_[p.first] = p.second;
   };
 
   py::array values() {
@@ -168,6 +169,58 @@ template <typename K, typename T> struct dict_typed_: dict_ {
 
 
 template <int ...> struct IntList {};
+template <typename ...> struct TypeList {};
+
+
+template<typename ...M, typename O> void inpl_op_(
+    dict_ &, py::array, py::array, py::array, IntList<>, TypeList<M...>, O) {
+  throw std::invalid_argument("Data type not supported");
+};
+template<int ...N, typename O> void inpl_op_(
+    dict_ &, py::array, py::array, py::array, IntList<N...>, TypeList<>, O) {
+  throw std::invalid_argument("Data type not supported");
+};
+template <int I, int ... N, typename J, typename ...M, typename O>
+void inpl_op_(dict_ &dict, py::array keys, py::array data, py::array fill,
+              IntList<I, N...>, TypeList<J, M...>, O op) {
+  if (I != dict.ktype_.itemsize()) {
+    inpl_op_(dict, keys, data, fill, IntList<N...>(), TypeList<J, M...>(), op);
+  }
+  else if (!py::dtype::of<J>().is(dict.dtype_)) {
+    inpl_op_(dict, keys, data, fill, IntList<I, N...>(), TypeList<M...>(), op);
+  }
+  else {
+    py::buffer_info kinfo = keys.request();
+    py::buffer_info dinfo = data.request();
+    py::buffer_info finfo = fill.request();
+    assert(dict.ktype_.is(py::dtype(kinfo)) &&
+           dict.dtype_.is(py::dtype(dinfo)) &&
+           dict.dtype_.is(py::dtype(finfo)) &&
+           (kinfo.size == dinfo.size || dinfo.size == 1) &&
+           (kinfo.size == finfo.size || finfo.size == 1));
+    auto dict_t = dynamic_cast<
+      dict_typed_<byte_set<I>, byte_set<sizeof(J)>>*>(&dict);
+    auto kptr = (byte_set<I>*)(kinfo.ptr);
+    auto dptr = (J*)(dinfo.ptr);
+    auto fptr = (byte_set<sizeof(J)>*)(finfo.ptr);
+    J* val;
+    for(int i = 0; i < kinfo.size; ++i) {
+      auto d = dict_t->map_.find(kptr[i]);
+      if(d == dict_t->map_.end()) {
+        auto p = dict_t->map_.emplace(
+          kptr[i], ((finfo.size == 1) ? fptr[0] : fptr[i]));
+        assert(p.second == true);
+        val = (J*)&(p.first->second);
+      }
+      else {
+        val = (J*)&(d->second);
+      };
+      val[0] = op(val[0], ((dinfo.size == 1) ? dptr[0] : dptr[i]));
+    };
+  };
+};
+
+
 template<int ...N> [[ noreturn ]]std::unique_ptr<dict_> init_dict_(
     py::dtype k, py::dtype d, IntList<>, IntList<N...>) {
   throw std::invalid_argument("Data type not supported");
@@ -193,7 +246,8 @@ void init_vasapy_dict(py::module &m) {
     py::class_<dict_>(m, "_dict")
         .def(py::init(
           [](py::dtype k, py::dtype d) {
-            return init_dict_(k, d, IntList<1, 2, 4, 8, 16, 32>(), IntList<1, 2, 4, 8, 16, 32>());
+            return init_dict_(k, d, IntList<1, 2, 4, 8, 16, 32>(),
+                              IntList<1, 2, 4, 8, 16, 32>());
           }
         ), py::arg("keys"), py::arg("data"))
         .def("__delitem__", &dict_::delitem, py::arg("keys"))
@@ -206,8 +260,23 @@ void init_vasapy_dict(py::module &m) {
         .def("items", &dict_::items)
         .def("keys", &dict_::keys)
         .def("popitem", &dict_::popitem)
-        .def("update", &dict_::update, py::arg("other"))
         .def("values", &dict_::values)
         .def_readonly("ktype", &dict_::ktype_)
         .def_readonly("dtype", &dict_::dtype_);
+    m.def("iadd", [](dict_ &dict, py::array k, py::array d, py::array f){
+        inpl_op_(dict, k, d, f, IntList<1, 2, 4, 8, 16>(),
+                 TypeList<__NPD_TYPES__>(), std::plus());
+    });
+    m.def("isub", [](dict_ &dict, py::array k, py::array d, py::array f){
+        inpl_op_(dict, k, d, f, IntList<1, 2, 4, 8, 16>(),
+                 TypeList<__NPD_TYPES__>(), std::minus());
+    });
+    m.def("imul", [](dict_ &dict, py::array k, py::array d, py::array f){
+        inpl_op_(dict, k, d, f, IntList<1, 2, 4, 8, 16>(),
+                 TypeList<__NPD_TYPES__>(), std::multiplies());
+    });
+    m.def("idiv", [](dict_ &dict, py::array k, py::array d, py::array f){
+        inpl_op_(dict, k, d, f, IntList<1, 2, 4, 8, 16>(),
+                 TypeList<__NPD_TYPES__>(), std::divides());
+    });
 };
