@@ -61,7 +61,8 @@ template <typename K, typename T> struct dict_typed_: dict_ {
 
   void delitem(py::array keys) {
     py::buffer_info kinfo = keys.request();
-    assert(ktype_.is(py::dtype(kinfo)));
+    if (!ktype_.is(py::dtype(kinfo)))
+        throw std::invalid_argument("Key array has incorrect dtype");
     K *kptr = (K*)(kinfo.ptr);
     for(int i = 0; i < kinfo.size; ++i) { map_.erase(kptr[i]); }
   };
@@ -69,11 +70,14 @@ template <typename K, typename T> struct dict_typed_: dict_ {
   py::array get(py::array keys, py::array fill) {
     py::buffer_info kinfo = keys.request();
     py::buffer_info finfo = fill.request();
-    assert(ktype_.is(py::dtype(kinfo)));
-    assert(dtype_.is(py::dtype(finfo)));
+    if (!ktype_.is(py::dtype(kinfo)))
+        throw std::invalid_argument("Key array has incorrect dtype");
+    if (!dtype_.is(py::dtype(finfo)))
+        throw std::invalid_argument("Default value array has incorrect dtype");
     K *kptr = (K*)(kinfo.ptr);
     T *fptr = (T*)(finfo.ptr);
-    assert(kinfo.size == finfo.size || finfo.size == 1);
+    if (kinfo.size != finfo.size && finfo.size != 1)
+        throw std::invalid_argument("Key and default arrays have incompatible sizes");
     auto strides = kinfo.strides;
     for(auto& s : strides) {
       double se = s / kinfo.itemsize; s = se * dtype_.itemsize();
@@ -93,7 +97,8 @@ template <typename K, typename T> struct dict_typed_: dict_ {
 
   py::array getitem(py::array keys) {
     py::buffer_info kinfo = keys.request();
-    assert(ktype_.is(py::dtype(kinfo)));
+    if (!ktype_.is(py::dtype(kinfo)))
+        throw std::invalid_argument("Key array has incorrect dtype");
     K *kptr = (K*)(kinfo.ptr);
     auto strides = kinfo.strides;
     for(auto& s : strides) {
@@ -147,9 +152,12 @@ template <typename K, typename T> struct dict_typed_: dict_ {
   void setitem(py::array keys, py::array data) {
     py::buffer_info kinfo = keys.request();
     py::buffer_info dinfo = data.request();
-    assert(kinfo.size == dinfo.size || dinfo.size == 1);
-    assert(ktype_.is(py::dtype(kinfo)));
-    assert(dtype_.is(py::dtype(dinfo)));
+    if (kinfo.size != dinfo.size && dinfo.size != 1)
+        throw std::invalid_argument("Key and data arrays have incompatible sizes");
+    if (!ktype_.is(py::dtype(kinfo)))
+        throw std::invalid_argument("Key array has incorrect dtype");
+    if (!dtype_.is(py::dtype(dinfo)))
+        throw std::invalid_argument("Data array has incorrect dtype");
     K *kptr = (K*)(kinfo.ptr);
     T *dptr = (T*)(dinfo.ptr);
     for(int i = 0; i < kinfo.size; ++i)
@@ -193,11 +201,16 @@ void inpl_op_(dict_ &dict, py::array keys, py::array data, py::array fill,
     py::buffer_info kinfo = keys.request();
     py::buffer_info dinfo = data.request();
     py::buffer_info finfo = fill.request();
-    assert(dict.ktype_.is(py::dtype(kinfo)) &&
-           dict.dtype_.is(py::dtype(dinfo)) &&
-           dict.dtype_.is(py::dtype(finfo)) &&
-           (kinfo.size == dinfo.size || dinfo.size == 1) &&
-           (kinfo.size == finfo.size || finfo.size == 1));
+    
+    if (!dict.ktype_.is(py::dtype(kinfo)))
+        throw std::invalid_argument("Key array has incorrect dtype for in-place operation");
+    if (!dict.dtype_.is(py::dtype(dinfo)))
+        throw std::invalid_argument("Data array has incorrect dtype for in-place operation");
+    if (!dict.dtype_.is(py::dtype(finfo)))
+        throw std::invalid_argument("Default value array has incorrect dtype for in-place operation");
+    if ((kinfo.size != dinfo.size && dinfo.size != 1) || (kinfo.size != finfo.size && finfo.size != 1))
+        throw std::invalid_argument("Array sizes are incompatible for in-place operation");
+
     auto dict_t = dynamic_cast<
       dict_typed_<byte_set<I>, byte_set<sizeof(J)>>*>(&dict);
     auto kptr = (byte_set<I>*)(kinfo.ptr);
@@ -209,7 +222,8 @@ void inpl_op_(dict_ &dict, py::array keys, py::array data, py::array fill,
       if(d == dict_t->map_.end()) {
         auto p = dict_t->map_.emplace(
           kptr[i], ((finfo.size == 1) ? fptr[0] : fptr[i]));
-        assert(p.second == true);
+        if (!p.second)
+            throw std::runtime_error("In-place operation failed due to logic error during insertion");
         val = (J*)&(p.first->second);
       }
       else {

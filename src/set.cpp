@@ -32,7 +32,8 @@ template <typename T> struct set_typed_:set_ {
 
   void add(py::array elem) {
     py::buffer_info einfo = elem.request();
-    assert (dtype_.is(py::dtype(einfo)));
+    if (!dtype_.is(py::dtype(einfo)))
+        throw std::invalid_argument("Element array has incorrect dtype");
     auto end = (T*)(einfo.ptr) + einfo.size;
     for(auto p = (T*)(einfo.ptr); p < end; ++p) map_.emplace(p);
   };
@@ -64,7 +65,8 @@ template <typename T> struct set_typed_:set_ {
 
   void dischard(py::array elem) {
     py::buffer_info einfo = elem.request();
-    assert (etype_.is(py::dtype(einfo)));
+    if (!dtype_.is(py::dtype(einfo)))
+        throw std::invalid_argument("Element array has incorrect dtype");
     T *eptr = (T*)(einfo.ptr);
     for(int i = 0; i < einfo.size; ++i) { map_.erase(eptr[i]); }
   };
@@ -84,7 +86,8 @@ template <typename T> struct set_typed_:set_ {
 
   void remove(py::array elem) {
     py::buffer_info einfo = elem.request();
-    assert (etype_.is(py::dtype(einfo)));
+    if (!dtype_.is(py::dtype(einfo)))
+        throw std::invalid_argument("Element array has incorrect dtype");
     T *eptr = (T*)(einfo.ptr);
     for(int i = 0; i < einfo.size; ++i) {
       if(!map_.erase(eptr[i]))
