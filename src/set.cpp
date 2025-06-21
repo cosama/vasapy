@@ -21,13 +21,15 @@ struct set_ {
   virtual void update(set_ &) = 0;
 
   py::dtype dtype_;
+  bool parallel_;
 };
 
 
-template <typename T> struct set_typed_:set_ {
+template <typename T, typename Set> struct set_typed_:set_ {
 
-  set_typed_(py::dtype dtype) {
+  set_typed_(py::dtype dtype, bool parallel) {
     dtype_ = dtype;
+    parallel_ = parallel;
   };
 
   void add(py::array elem) {
@@ -53,11 +55,11 @@ template <typename T> struct set_typed_:set_ {
   py::array_t<bool> contains(py::array elem) {
     py::buffer_info einfo = elem.request();
     T *eptr = (T*)(einfo.ptr);
-    auto ret = py::array_t<bool>({(py::size_t)einfo.size});
+    auto ret = py::array_t<bool>({(py::ssize_t)einfo.size});
     py::buffer_info rinfo = ret.request();
     bool *rptr = (bool*)(rinfo.ptr);
     auto end = map_.end();
-    for(int i = 0; i < einfo.size; ++i) {
+    for(py::ssize_t i = 0; i < einfo.size; ++i) {
       rptr[i] = map_.find(eptr[i]) != end;
     }
     return ret;
@@ -68,7 +70,7 @@ template <typename T> struct set_typed_:set_ {
     if (!dtype_.is(py::dtype(einfo)))
         throw std::invalid_argument("Element array has incorrect dtype");
     T *eptr = (T*)(einfo.ptr);
-    for(int i = 0; i < einfo.size; ++i) { map_.erase(eptr[i]); }
+    for(py::ssize_t i = 0; i < einfo.size; ++i) { map_.erase(eptr[i]); }
   };
 
   py::size_t len() {
@@ -89,43 +91,46 @@ template <typename T> struct set_typed_:set_ {
     if (!dtype_.is(py::dtype(einfo)))
         throw std::invalid_argument("Element array has incorrect dtype");
     T *eptr = (T*)(einfo.ptr);
-    for(int i = 0; i < einfo.size; ++i) {
+    for(py::ssize_t i = 0; i < einfo.size; ++i) {
       if(!map_.erase(eptr[i]))
         throw pybind11::key_error("Element not in set");
       }
   };
 
   void update(set_ &other) {
-    // dynamic cast is not optimal but probably best we can do here
-    auto o = dynamic_cast<set_typed_*>(&other);
-    for(auto &p : o->map_) map_.emplace(p);
+    py::buffer_info binfo = other.buffer();
+    py::array elem(other.dtype_, {(py::ssize_t)binfo.shape[0]}, {(py::ssize_t)binfo.strides[0]}, binfo.ptr);
+    add(elem);
   };
 
-  phmap::flat_hash_set<T> map_;
+  Set map_;
 };
 
 
 template <int ...> struct IntList {};
 template<int ...N> [[ noreturn ]]std::unique_ptr<set_> init_set_(
-    py::dtype d, IntList<>) {
+    py::dtype d, bool, IntList<>) {
   throw std::invalid_argument("Element type not supported");
 };
 template <int I, int ...N>
-std::unique_ptr<set_> init_set_(py::dtype d, IntList<I, N...>) {
+std::unique_ptr<set_> init_set_(py::dtype d, bool parallel, IntList<I, N...>) {
   if (I != d.itemsize()) {
-    return init_set_(d, IntList<N...>());
+    return init_set_(d, parallel, IntList<N...>());
   }
-  return std::make_unique<set_typed_<byte_set<I> > >(d);
+  if (parallel) {
+    return std::make_unique<set_typed_<byte_set<I>, phmap::parallel_flat_hash_set<byte_set<I>> > >(d, parallel);
+  }
+  return std::make_unique<set_typed_<byte_set<I>, phmap::flat_hash_set<byte_set<I>> > >(d, parallel);
 };
 
 
 void init_vasapy_set(py::module &m) {
     py::class_<set_>(m, "_set", py::buffer_protocol())
         .def(py::init(
-          [](py::dtype d) {
-            return init_set_(d, IntList<1, 2, 4, 8, 16, 32>());
+          [](py::dtype d, bool parallel) {
+            return init_set_(d, parallel, IntList<1, 2, 4, 8, 16, 32>());
           }
-        ), py::arg("elem"))
+        ), py::arg("elem"), py::arg("parallel") = false)
         .def("__len__", &set_::len)
         .def("add", &set_::add, py::arg("elem"))
         .def("clear", &set_::clear)
@@ -135,6 +140,7 @@ void init_vasapy_set(py::module &m) {
         .def("remove", &set_::remove, py::arg("elem"))
         .def("update", &set_::update, py::arg("other"))
         .def_readonly("dtype", &set_::dtype_)
+        .def_readonly("parallel", &set_::parallel_)
         .def_buffer([](set_ &other) -> py::buffer_info {
           return other.buffer();
         });

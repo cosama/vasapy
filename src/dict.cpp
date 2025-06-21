@@ -32,14 +32,16 @@ struct dict_ {
 
   py::dtype dtype_;
   py::dtype ktype_;
+  bool parallel_;
 };
 
 
-template <typename K, typename T> struct dict_typed_: dict_ {
+template <typename K, typename T, typename Map> struct dict_typed_: dict_ {
 
-  dict_typed_(py::dtype ktype, py::dtype dtype) {
+  dict_typed_(py::dtype ktype, py::dtype dtype, bool parallel) {
     ktype_ = ktype;
     dtype_ = dtype;
+    parallel_ = parallel;
   };
 
   void clear() {
@@ -49,11 +51,11 @@ template <typename K, typename T> struct dict_typed_: dict_ {
   py::array_t<bool> contains(py::array keys) {
     py::buffer_info kinfo = keys.request();
     K *kptr = (K*)(kinfo.ptr);
-    auto ret = py::array_t<bool>({(py::size_t)kinfo.size});
+    auto ret = py::array_t<bool>({(py::ssize_t)kinfo.size});
     py::buffer_info rinfo = ret.request();
     bool *rptr = (bool*)(rinfo.ptr);
     auto end = map_.end();
-    for(int i = 0; i < kinfo.size; ++i) {
+    for(py::ssize_t i = 0; i < kinfo.size; ++i) {
       rptr[i] = map_.find(kptr[i]) != end;
     }
     return ret;
@@ -64,7 +66,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     if (!ktype_.is(py::dtype(kinfo)))
         throw std::invalid_argument("Key array has incorrect dtype");
     K *kptr = (K*)(kinfo.ptr);
-    for(int i = 0; i < kinfo.size; ++i) { map_.erase(kptr[i]); }
+    for(py::ssize_t i = 0; i < kinfo.size; ++i) { map_.erase(kptr[i]); }
   };
 
   py::array get(py::array keys, py::array fill) {
@@ -85,7 +87,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     auto data = py::array(dtype_, kinfo.shape, strides);
     py::buffer_info dinfo = data.request();
     T *dptr = (T*)(dinfo.ptr);
-    for(int i = 0; i < kinfo.size; ++i) {
+    for(py::ssize_t i = 0; i < kinfo.size; ++i) {
       auto d = map_.find(kptr[i]);
       if(d == map_.end())
         dptr[i] = (finfo.size == 1) ? fptr[0] : fptr[i];
@@ -107,7 +109,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     auto data = py::array(dtype_, kinfo.shape, strides);
     py::buffer_info dinfo = data.request();
     T *dptr = (T*)(dinfo.ptr);
-    for(int i = 0; i < kinfo.size; ++i) dptr[i] = map_.at(kptr[i]);
+    for(py::ssize_t i = 0; i < kinfo.size; ++i) dptr[i] = map_.at(kptr[i]);
     return data;
   };
 
@@ -160,7 +162,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
         throw std::invalid_argument("Data array has incorrect dtype");
     K *kptr = (K*)(kinfo.ptr);
     T *dptr = (T*)(dinfo.ptr);
-    for(int i = 0; i < kinfo.size; ++i)
+    for(py::ssize_t i = 0; i < kinfo.size; ++i)
       map_[kptr[i]] = (dinfo.size == 1) ? dptr[0] : dptr[i];
   };
 
@@ -172,7 +174,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     return data;
   };
 
-  phmap::flat_hash_map<K, T> map_;
+  Map map_;
 };
 
 
@@ -180,22 +182,46 @@ template <int ...> struct IntList {};
 template <typename ...> struct TypeList {};
 
 
-template<typename ...M, typename O> void inpl_op_(
-    dict_ &, py::array, py::array, py::array, IntList<>, TypeList<M...>, O) {
+template<typename DictTyped, typename J, typename O>
+void do_inpl_op_(dict_ &dict, py::array keys, py::array data, py::array fill, O op) {
+    py::buffer_info kinfo = keys.request(), dinfo = data.request(), finfo = fill.request();
+    auto dict_t = dynamic_cast<DictTyped*>(&dict);
+    auto kptr = (typename decltype(dict_t->map_)::key_type*)(kinfo.ptr);
+    auto dptr = (J*)(dinfo.ptr);
+    auto fptr = (typename decltype(dict_t->map_)::mapped_type*)(finfo.ptr);
+    J* val;
+    for(py::ssize_t i = 0; i < kinfo.size; ++i) {
+      auto d = dict_t->map_.find(kptr[i]);
+      if(d == dict_t->map_.end()) {
+        auto p = dict_t->map_.emplace(kptr[i], ((finfo.size == 1) ? fptr[0] : fptr[i]));
+        if (!p.second)
+            throw std::runtime_error("In-place operation failed due to logic error during insertion");
+        val = (J*)&(p.first->second);
+      } else {
+        val = (J*)&(d->second);
+      };
+      val[0] = op(val[0], ((dinfo.size == 1) ? dptr[0] : dptr[i]));
+    };
+};
+
+template<typename ...M, typename O>
+void inpl_op_(dict_ &, py::array, py::array, py::array, IntList<>, TypeList<M...>, O) {
   throw std::invalid_argument("Data type not supported");
 };
-template<int ...N, typename O> void inpl_op_(
-    dict_ &, py::array, py::array, py::array, IntList<N...>, TypeList<>, O) {
+
+template<int ...N, typename O>
+void inpl_op_(dict_ &, py::array, py::array, py::array, IntList<N...>, TypeList<>, O) {
   throw std::invalid_argument("Data type not supported");
 };
+
 template <int I, int ... N, typename J, typename ...M, typename O>
 void inpl_op_(dict_ &dict, py::array keys, py::array data, py::array fill,
               IntList<I, N...>, TypeList<J, M...>, O op) {
   if (I != dict.ktype_.itemsize()) {
-    inpl_op_(dict, keys, data, fill, IntList<N...>(), TypeList<J, M...>(), op);
+    inpl_op_(dict, keys, data, fill, IntList<N...>(), TypeList<J, M...>{}, op);
   }
   else if (!py::dtype::of<J>().is(dict.dtype_)) {
-    inpl_op_(dict, keys, data, fill, IntList<I, N...>(), TypeList<M...>(), op);
+    inpl_op_(dict, keys, data, fill, IntList<I, N...>{}, TypeList<M...>(), op);
   }
   else {
     py::buffer_info kinfo = keys.request();
@@ -211,59 +237,47 @@ void inpl_op_(dict_ &dict, py::array keys, py::array data, py::array fill,
     if ((kinfo.size != dinfo.size && dinfo.size != 1) || (kinfo.size != finfo.size && finfo.size != 1))
         throw std::invalid_argument("Array sizes are incompatible for in-place operation");
 
-    auto dict_t = dynamic_cast<
-      dict_typed_<byte_set<I>, byte_set<sizeof(J)>>*>(&dict);
-    auto kptr = (byte_set<I>*)(kinfo.ptr);
-    auto dptr = (J*)(dinfo.ptr);
-    auto fptr = (byte_set<sizeof(J)>*)(finfo.ptr);
-    J* val;
-    for(int i = 0; i < kinfo.size; ++i) {
-      auto d = dict_t->map_.find(kptr[i]);
-      if(d == dict_t->map_.end()) {
-        auto p = dict_t->map_.emplace(
-          kptr[i], ((finfo.size == 1) ? fptr[0] : fptr[i]));
-        if (!p.second)
-            throw std::runtime_error("In-place operation failed due to logic error during insertion");
-        val = (J*)&(p.first->second);
-      }
-      else {
-        val = (J*)&(d->second);
-      };
-      val[0] = op(val[0], ((dinfo.size == 1) ? dptr[0] : dptr[i]));
-    };
+    if (dict.parallel_) {
+        do_inpl_op_<dict_typed_<byte_set<I>, byte_set<sizeof(J)>, phmap::parallel_flat_hash_map<byte_set<I>, byte_set<sizeof(J)>>>, J>(dict, keys, data, fill, op);
+    } else {
+        do_inpl_op_<dict_typed_<byte_set<I>, byte_set<sizeof(J)>, phmap::flat_hash_map<byte_set<I>, byte_set<sizeof(J)>>>, J>(dict, keys, data, fill, op);
+    }
   };
 };
 
 
 template<int ...N> [[ noreturn ]]std::unique_ptr<dict_> init_dict_(
-    py::dtype k, py::dtype d, IntList<>, IntList<N...>) {
-  throw std::invalid_argument("Data type not supported");
+    py::dtype k, py::dtype d, bool, IntList<>, IntList<N...>) {
+  throw std::invalid_argument("Key type not supported");
 };
 template<int ...N> [[ noreturn ]]std::unique_ptr<dict_> init_dict_(
-    py::dtype k, py::dtype d, IntList<N...>, IntList<>) {
+    py::dtype k, py::dtype d, bool, IntList<N...>, IntList<>) {
   throw std::invalid_argument("Data type not supported");
 };
 template <int I, int ...N, int J, int ...M>
 std::unique_ptr<dict_> init_dict_(
-    py::dtype k, py::dtype d, IntList<I, N...>, IntList<J, M...>) {
+    py::dtype k, py::dtype d, bool parallel, IntList<I, N...>, IntList<J, M...>) {
   if (I != k.itemsize()) {
-    return init_dict_(k, d, IntList<N...>(), IntList<J, M...>());
+    return init_dict_(k, d, parallel, IntList<N...>(), IntList<J, M...>());
   }
   if (J != d.itemsize()) {
-    return init_dict_(k, d, IntList<I, N...>(), IntList<M...>());
+    return init_dict_(k, d, parallel, IntList<I, N...>(), IntList<M...>());
   }
-  return std::make_unique<dict_typed_<byte_set<I>, byte_set<J> > >(k, d);
+  if (parallel) {
+      return std::make_unique<dict_typed_<byte_set<I>, byte_set<J>, phmap::parallel_flat_hash_map<byte_set<I>, byte_set<J> > > >(k, d, parallel);
+  }
+  return std::make_unique<dict_typed_<byte_set<I>, byte_set<J>, phmap::flat_hash_map<byte_set<I>, byte_set<J> > > >(k, d, parallel);
 };
 
 
 void init_vasapy_dict(py::module &m) {
     py::class_<dict_>(m, "_dict")
         .def(py::init(
-          [](py::dtype k, py::dtype d) {
-            return init_dict_(k, d, IntList<1, 2, 4, 8, 16, 32>(),
+          [](py::dtype k, py::dtype d, bool parallel) {
+            return init_dict_(k, d, parallel, IntList<1, 2, 4, 8, 16, 32>(),
                               IntList<1, 2, 4, 8, 16, 32>());
           }
-        ), py::arg("keys"), py::arg("data"))
+        ), py::arg("keys"), py::arg("data"), py::arg("parallel") = false)
         .def("__delitem__", &dict_::delitem, py::arg("keys"))
         .def("__getitem__", &dict_::getitem, py::arg("keys"))
         .def("__len__", &dict_::len)
@@ -276,7 +290,8 @@ void init_vasapy_dict(py::module &m) {
         .def("popitem", &dict_::popitem)
         .def("values", &dict_::values)
         .def_readonly("ktype", &dict_::ktype_)
-        .def_readonly("dtype", &dict_::dtype_);
+        .def_readonly("dtype", &dict_::dtype_)
+        .def_readonly("parallel", &dict_::parallel_);
     m.def("iadd", [](dict_ &dict, py::array k, py::array d, py::array f){
         inpl_op_(dict, k, d, f, IntList<1, 2, 4, 8, 16>(),
                  TypeList<__NPD_TYPES__>(), std::plus());

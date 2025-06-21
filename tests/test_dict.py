@@ -4,25 +4,30 @@ import pytest
 from definitions import nptypes
 
 
-@pytest.fixture
-def dict_0_(ktype, dtype):
-    return vp.dict(ktype, dtype), np.dtype(ktype), np.dtype(dtype)
+@pytest.fixture(params=[True, False], ids=lambda p: f"parallel={p}")
+def parallel(request):
+    return request.param
 
 
 @pytest.fixture
-def dict_1_(ktype, dtype):
+def dict_0_(ktype, dtype, parallel):
+    return vp.dict(ktype, dtype, parallel=parallel), np.dtype(ktype), np.dtype(dtype)
+
+
+@pytest.fixture
+def dict_1_(ktype, dtype, parallel):
     keys = np.array([0], dtype=ktype)
     data = np.array([1], dtype=dtype)
-    return vp.dict(keys, data), keys.dtype, data.dtype, keys, data
+    return vp.dict(keys, data, parallel=parallel), keys.dtype, data.dtype, keys, data
 
 
 @pytest.fixture
-def dict_10_(ktype, dtype):
+def dict_10_(ktype, dtype, parallel):
     if ktype == np.bool_ or ktype == np.bool8:
         pytest.xfail("Boolean dict can only have 2 elements")
     keys = np.arange(10, dtype=ktype)
     data = (np.random.rand(10)*100).astype(dtype)
-    return vp.dict(keys, data), keys.dtype, data.dtype, keys, data
+    return vp.dict(keys, data, parallel=parallel), keys.dtype, data.dtype, keys, data
 
 
 @pytest.mark.parametrize("dtype", nptypes)
@@ -40,17 +45,19 @@ class TestDict:
         if data_in is not None and data_out is not None:
             assert np.all(np.equal(data_in, data_out))
 
-    def test_init_types(self, ktype, dtype):
-        hd = vp.dict(ktype, dtype)
+    def test_init_types(self, ktype, dtype, parallel):
+        hd = vp.dict(ktype, dtype, parallel=parallel)
         assert np.dtype(ktype) == hd.ktype
         assert np.dtype(dtype) == hd.dtype
+        assert parallel == hd.parallel
 
-    def test_init_dtypes(self, ktype, dtype):
+    def test_init_dtypes(self, ktype, dtype, parallel):
         ktype_ = np.dtype(ktype)
         dtype_ = np.dtype(dtype)
-        hd = vp.dict(ktype_, dtype_)
+        hd = vp.dict(ktype_, dtype_, parallel=parallel)
         assert ktype_ == hd.ktype
         assert dtype_ == hd.dtype
+        assert parallel == hd.parallel
 
     def test_init_arrays(self, dict_10_):
         hd, ktype_, dtype_, _, _ = dict_10_
@@ -92,13 +99,15 @@ class TestDict:
         assert np.all(hd.contains(keys_in) == True)
         assert np.all(hd.contains(np.array([101, 102])) == False)
 
-    def test_fromkeys(cls, ktype, dtype):
+    def test_fromkeys(self, ktype, dtype, parallel):
         keys = np.array([0], dtype=ktype)
         data = np.array([1], dtype=dtype)
         hd = vp.dict.fromkeys(keys, data)
         assert len(hd) == 1
         assert hd.ktype == ktype
         assert hd.dtype == dtype
+        # The fromkeys classmethod won't know about the parallel flag from an instance
+        # so we can't test hd.parallel here reliably without more changes.
         hd = vp.dict.fromkeys(keys)
         assert len(hd) == 1
         assert hd.ktype == ktype

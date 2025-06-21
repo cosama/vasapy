@@ -2,7 +2,7 @@ import _vasapy as _vp
 import numpy as np
 
 class dict(_vp._dict):
-    def __init__(self, keys, data):
+    def __init__(self, keys, data, parallel=False):
         if isinstance(keys, np.ndarray):
             ktype = keys.dtype
         elif isinstance(keys, (list, tuple)):
@@ -19,7 +19,7 @@ class dict(_vp._dict):
         else:
             dtype = np.dtype(data)
             data = None
-        super().__init__(ktype, dtype)
+        super().__init__(ktype, dtype, parallel)
         if keys is not None:
             if data is None:
                 data = np.zeros_like(keys, dtype=dtype)

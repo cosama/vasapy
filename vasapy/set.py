@@ -2,7 +2,7 @@ from _vasapy import _set
 import numpy as np
 
 class set(_set):
-    def __init__(self, elem):
+    def __init__(self, elem, parallel=False):
         if isinstance(elem, np.ndarray):
             dtype = elem.dtype
         elif isinstance(elem, (list, tuple)):
@@ -11,7 +11,7 @@ class set(_set):
         else:
             dtype = np.dtype(elem)
             elem = None
-        super().__init__(dtype)
+        super().__init__(dtype, parallel)
         if elem is not None:
             self.add(elem)
 

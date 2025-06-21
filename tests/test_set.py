@@ -4,23 +4,28 @@ import pytest
 from definitions import nptypes
 
 
-@pytest.fixture
-def set_0_(dtype):
-    return vp.set(dtype), np.dtype(dtype)
+@pytest.fixture(params=[True, False], ids=lambda p: f"parallel={p}")
+def parallel(request):
+    return request.param
 
 
 @pytest.fixture
-def set_1_(dtype):
+def set_0_(dtype, parallel):
+    return vp.set(dtype, parallel=parallel), np.dtype(dtype)
+
+
+@pytest.fixture
+def set_1_(dtype, parallel):
     elem = np.array([0], dtype=dtype)
-    return vp.set(elem), elem.dtype, elem
+    return vp.set(elem, parallel=parallel), elem.dtype, elem
 
 
 @pytest.fixture
-def set_10_(dtype):
+def set_10_(dtype, parallel):
     if dtype == np.bool_ or dtype == np.bool8:
         pytest.xfail("Boolean set can only have 2 elements")
     elem = np.arange(10, dtype=dtype)
-    return vp.set(elem), elem.dtype, elem
+    return vp.set(elem, parallel=parallel), elem.dtype, elem
 
 
 @pytest.mark.parametrize("dtype", nptypes)
@@ -32,14 +37,16 @@ class TestSet:
             elem_in, elem_out = elem_in[ind_in], elem_out[ind_out]
         assert np.all(np.equal(elem_in, elem_out))
 
-    def test_init_types(self, dtype):
-        hs = vp.set(dtype)
+    def test_init_types(self, dtype, parallel):
+        hs = vp.set(dtype, parallel=parallel)
         assert np.dtype(dtype) == hs.dtype
+        assert hs.parallel == parallel
 
-    def test_init_dtypes(self, dtype):
+    def test_init_dtypes(self, dtype, parallel):
         dtype_ = np.dtype(dtype)
-        hs = vp.set(dtype_)
+        hs = vp.set(dtype_, parallel=parallel)
         assert dtype_ == hs.dtype
+        assert hs.parallel == parallel
 
     def test_init_arrays(self, set_10_):
         hs, dtype_, _ = set_10_
@@ -93,6 +100,7 @@ class TestSet:
         hs2, _, _ = set_10_
         hs1.update(hs2)
         assert len(hs1) == len(hs2)
+        assert hs1.parallel == hs2.parallel
         k1 = np.asarray(hs1)
         k2 = np.asarray(hs2)
         self.helper_check(k1, k2, sort=True)
