@@ -1,3 +1,5 @@
+#include <omp.h>
+#include <vector>
 #include <parallel_hashmap/phmap.h>
 #include <byte_set.h>
 #include <iostream>
@@ -15,6 +17,15 @@
 
 namespace py = pybind11;
 
+// Alias for a parallel map that is correctly configured with a real mutex
+template<class K, class V>
+using parallel_map_with_mutex = phmap::parallel_flat_hash_map<
+    K, V,
+    phmap::priv::hash_default_hash<K>,
+    phmap::priv::hash_default_eq<K>,
+    phmap::priv::Allocator<phmap::priv::Pair<const K, V>>,
+    4,
+    std::mutex>;
 
 struct dict_ {
   virtual ~dict_() = default;
@@ -54,10 +65,13 @@ template <typename K, typename T, typename Map> struct dict_typed_: dict_ {
     auto ret = py::array_t<bool>({(py::ssize_t)kinfo.size});
     py::buffer_info rinfo = ret.request();
     bool *rptr = (bool*)(rinfo.ptr);
-    auto end = map_.end();
+    
+    py::gil_scoped_release release;
+    #pragma omp parallel for if(parallel_)
     for(py::ssize_t i = 0; i < kinfo.size; ++i) {
-      rptr[i] = map_.find(kptr[i]) != end;
+      rptr[i] = map_.contains(kptr[i]);
     }
+    
     return ret;
   };
 
@@ -66,6 +80,9 @@ template <typename K, typename T, typename Map> struct dict_typed_: dict_ {
     if (!ktype_.is(py::dtype(kinfo)))
         throw std::invalid_argument("Key array has incorrect dtype");
     K *kptr = (K*)(kinfo.ptr);
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for if(parallel_)
     for(py::ssize_t i = 0; i < kinfo.size; ++i) { map_.erase(kptr[i]); }
   };
 
@@ -87,12 +104,15 @@ template <typename K, typename T, typename Map> struct dict_typed_: dict_ {
     auto data = py::array(dtype_, kinfo.shape, strides);
     py::buffer_info dinfo = data.request();
     T *dptr = (T*)(dinfo.ptr);
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for if(parallel_)
     for(py::ssize_t i = 0; i < kinfo.size; ++i) {
-      auto d = map_.find(kptr[i]);
-      if(d == map_.end())
+      auto it = map_.find(kptr[i]);
+      if(it == map_.end())
         dptr[i] = (finfo.size == 1) ? fptr[0] : fptr[i];
       else
-        dptr[i] = d->second;
+        dptr[i] = it->second;
     }
     return data;
   };
@@ -109,29 +129,86 @@ template <typename K, typename T, typename Map> struct dict_typed_: dict_ {
     auto data = py::array(dtype_, kinfo.shape, strides);
     py::buffer_info dinfo = data.request();
     T *dptr = (T*)(dinfo.ptr);
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for if(parallel_)
     for(py::ssize_t i = 0; i < kinfo.size; ++i) dptr[i] = map_.at(kptr[i]);
     return data;
   };
 
   std::pair<py::array, py::array> items() {
-    auto keys = py::array(ktype_, {map_.size()}, {ktype_.itemsize()});
-    auto data = py::array(dtype_, {map_.size()}, {dtype_.itemsize()});
-    py::buffer_info kinfo = keys.request();
-    py::buffer_info dinfo = data.request();
-    K *kptr = (K*)(kinfo.ptr);
-    T *dptr = (T*)(dinfo.ptr);
-    for(const auto& p: map_) {
-      kptr[0] = p.first; dptr[0] = p.second;
-      ++kptr; ++dptr;
+    const size_t n = map_.size();
+    auto keys = py::array(ktype_, {n}, {ktype_.itemsize()});
+    auto data = py::array(dtype_, {n}, {dtype_.itemsize()});
+    if (n == 0) return {keys, data};
+
+    K *kptr = (K*)(keys.request().ptr);
+    T *dptr = (T*)(data.request().ptr);
+
+    if (parallel_) {
+        const size_t num_submaps = map_.subcnt();
+        std::vector<size_t> offsets(num_submaps + 1, 0);
+        for (size_t i = 0; i < num_submaps; ++i) {
+            map_.with_submap(i, [&](const auto& submap) {
+                offsets[i + 1] = submap.size();
+            });
+        }
+        for (size_t i = 0; i < num_submaps; ++i) {
+            offsets[i + 1] += offsets[i];
+        }
+        
+        py::gil_scoped_release release;
+        #pragma omp parallel for
+        for (size_t i = 0; i < num_submaps; ++i) {
+            map_.with_submap(i, [&](const auto& submap) {
+                size_t current_pos = offsets[i];
+                for (const auto& p : submap) {
+                    kptr[current_pos] = p.first;
+                    dptr[current_pos] = p.second;
+                    ++current_pos;
+                }
+            });
+        }
+    } else {
+        for(const auto& p: map_) {
+            kptr[0] = p.first; dptr[0] = p.second;
+            ++kptr; ++dptr;
+        }
     }
-    return std::pair<py::array, py::array>(keys, data);
+    return {keys, data};
   };
 
   py::array keys() {
     auto keys = py::array(ktype_, {map_.size()}, {ktype_.itemsize()});
-    py::buffer_info kinfo = keys.request();
-    K *kptr = (K*)(kinfo.ptr);
-    for(const auto& p: map_) { kptr[0] = p.first; ++kptr; }
+    if (map_.empty()) return keys;
+
+    K *kptr = (K*)(keys.request().ptr);
+
+    if (parallel_) {
+        const size_t num_submaps = map_.subcnt();
+        std::vector<size_t> offsets(num_submaps + 1, 0);
+        for (size_t i = 0; i < num_submaps; ++i) {
+            map_.with_submap(i, [&](const auto& submap) {
+                offsets[i + 1] = submap.size();
+            });
+        }
+        for (size_t i = 0; i < num_submaps; ++i) {
+            offsets[i + 1] += offsets[i];
+        }
+
+        py::gil_scoped_release release;
+        #pragma omp parallel for
+        for (size_t i = 0; i < num_submaps; ++i) {
+            map_.with_submap(i, [&](const auto& submap) {
+                size_t current_pos = offsets[i];
+                for (const auto& p : submap) {
+                    kptr[current_pos++] = p.first;
+                }
+            });
+        }
+    } else {
+        for(const auto& p: map_) { kptr[0] = p.first; ++kptr; }
+    }
     return keys;
   };
 
@@ -162,15 +239,45 @@ template <typename K, typename T, typename Map> struct dict_typed_: dict_ {
         throw std::invalid_argument("Data array has incorrect dtype");
     K *kptr = (K*)(kinfo.ptr);
     T *dptr = (T*)(dinfo.ptr);
-    for(py::ssize_t i = 0; i < kinfo.size; ++i)
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for if(parallel_)
+    for(py::ssize_t i = 0; i < kinfo.size; ++i) {
       map_[kptr[i]] = (dinfo.size == 1) ? dptr[0] : dptr[i];
+    }
   };
 
   py::array values() {
     auto data = py::array(dtype_, {map_.size()}, {dtype_.itemsize()});
-    py::buffer_info dinfo = data.request();
-    T *dptr = (T*)(dinfo.ptr);
-    for(const auto& p: map_) { dptr[0] = p.second; ++dptr; }
+    if (map_.empty()) return data;
+    
+    T *dptr = (T*)(data.request().ptr);
+
+    if (parallel_) {
+        const size_t num_submaps = map_.subcnt();
+        std::vector<size_t> offsets(num_submaps + 1, 0);
+        for (size_t i = 0; i < num_submaps; ++i) {
+            map_.with_submap(i, [&](const auto& submap) {
+                offsets[i + 1] = submap.size();
+            });
+        }
+        for (size_t i = 0; i < num_submaps; ++i) {
+            offsets[i + 1] += offsets[i];
+        }
+
+        py::gil_scoped_release release;
+        #pragma omp parallel for
+        for (size_t i = 0; i < num_submaps; ++i) {
+            map_.with_submap(i, [&](const auto& submap) {
+                size_t current_pos = offsets[i];
+                for (const auto& p : submap) {
+                    dptr[current_pos++] = p.second;
+                }
+            });
+        }
+    } else {
+        for(const auto& p: map_) { dptr[0] = p.second; ++dptr; }
+    }
     return data;
   };
 
@@ -181,9 +288,29 @@ template <typename K, typename T, typename Map> struct dict_typed_: dict_ {
 template <int ...> struct IntList {};
 template <typename ...> struct TypeList {};
 
+template<typename DictTyped, typename J, typename O>
+void do_inpl_op_parallel_(dict_ &dict, py::array& keys, py::array& data, py::array& fill, O op) {
+    py::buffer_info kinfo = keys.request(), dinfo = data.request(), finfo = fill.request();
+    auto dict_t = dynamic_cast<DictTyped*>(&dict);
+    auto kptr = (typename decltype(dict_t->map_)::key_type*)(kinfo.ptr);
+    auto dptr = (J*)(dinfo.ptr);
+    auto fptr = (typename decltype(dict_t->map_)::mapped_type*)(finfo.ptr);
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for
+    for(py::ssize_t i = 0; i < kinfo.size; ++i) {
+        dict_t->map_.lazy_emplace_l(
+            kptr[i],
+            [&](auto& p) { 
+              J* val = (J*)(&p.second);
+              *val = op(*val, (dinfo.size == 1) ? dptr[0] : dptr[i]); },
+            [&](const auto& ctor) { ctor(kptr[i], (finfo.size == 1) ? fptr[0] : fptr[i]);}
+        );
+    };
+}
 
 template<typename DictTyped, typename J, typename O>
-void do_inpl_op_(dict_ &dict, py::array keys, py::array data, py::array fill, O op) {
+void do_inpl_op_flat_(dict_ &dict, py::array keys, py::array data, py::array fill, O op) {
     py::buffer_info kinfo = keys.request(), dinfo = data.request(), finfo = fill.request();
     auto dict_t = dynamic_cast<DictTyped*>(&dict);
     auto kptr = (typename decltype(dict_t->map_)::key_type*)(kinfo.ptr);
@@ -200,13 +327,13 @@ void do_inpl_op_(dict_ &dict, py::array keys, py::array data, py::array fill, O 
       } else {
         val = (J*)&(d->second);
       };
-      val[0] = op(val[0], ((dinfo.size == 1) ? dptr[0] : dptr[i]));
+      *val = op(val[0], ((dinfo.size == 1) ? dptr[0] : dptr[i]));
     };
 };
 
 template<typename ...M, typename O>
 void inpl_op_(dict_ &, py::array, py::array, py::array, IntList<>, TypeList<M...>, O) {
-  throw std::invalid_argument("Data type not supported");
+  throw std::invalid_argument("Key type not supported");
 };
 
 template<int ...N, typename O>
@@ -238,9 +365,9 @@ void inpl_op_(dict_ &dict, py::array keys, py::array data, py::array fill,
         throw std::invalid_argument("Array sizes are incompatible for in-place operation");
 
     if (dict.parallel_) {
-        do_inpl_op_<dict_typed_<byte_set<I>, byte_set<sizeof(J)>, phmap::parallel_flat_hash_map<byte_set<I>, byte_set<sizeof(J)>>>, J>(dict, keys, data, fill, op);
+        do_inpl_op_parallel_<dict_typed_<byte_set<I>, byte_set<sizeof(J)>, parallel_map_with_mutex<byte_set<I>, byte_set<sizeof(J)>>>, J>(dict, keys, data, fill, op);
     } else {
-        do_inpl_op_<dict_typed_<byte_set<I>, byte_set<sizeof(J)>, phmap::flat_hash_map<byte_set<I>, byte_set<sizeof(J)>>>, J>(dict, keys, data, fill, op);
+        do_inpl_op_flat_<dict_typed_<byte_set<I>, byte_set<sizeof(J)>, phmap::flat_hash_map<byte_set<I>, byte_set<sizeof(J)>>>, J>(dict, keys, data, fill, op);
     }
   };
 };
@@ -264,7 +391,7 @@ std::unique_ptr<dict_> init_dict_(
     return init_dict_(k, d, parallel, IntList<I, N...>(), IntList<M...>());
   }
   if (parallel) {
-      return std::make_unique<dict_typed_<byte_set<I>, byte_set<J>, phmap::parallel_flat_hash_map<byte_set<I>, byte_set<J> > > >(k, d, parallel);
+      return std::make_unique<dict_typed_<byte_set<I>, byte_set<J>, parallel_map_with_mutex<byte_set<I>, byte_set<J> > > >(k, d, parallel);
   }
   return std::make_unique<dict_typed_<byte_set<I>, byte_set<J>, phmap::flat_hash_map<byte_set<I>, byte_set<J> > > >(k, d, parallel);
 };

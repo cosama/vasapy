@@ -19,6 +19,7 @@ struct set_ {
   virtual py::array pop() = 0;
   virtual void remove(py::array) = 0;
   virtual void update(set_ &) = 0;
+  virtual py::array items() = 0;
 
   py::dtype dtype_;
   bool parallel_;
@@ -37,6 +38,7 @@ template <typename T, typename Set> struct set_typed_:set_ {
     if (!dtype_.is(py::dtype(einfo)))
         throw std::invalid_argument("Element array has incorrect dtype");
     auto end = (T*)(einfo.ptr) + einfo.size;
+    #pragma omp parallel for if(dict.parallel_)
     for(auto p = (T*)(einfo.ptr); p < end; ++p) map_.emplace(p);
   };
 
@@ -44,6 +46,7 @@ template <typename T, typename Set> struct set_typed_:set_ {
     auto ret = py::array(dtype_, {map_.size()}, {dtype_.itemsize()});
     py::buffer_info rinfo = ret.request();
     T *rptr = (T*)(rinfo.ptr);
+    #pragma omp parallel for if(dict.parallel_)
     for(const auto& p: map_) { rptr[0] = p; ++rptr; };
     return rinfo;
   };
@@ -59,6 +62,7 @@ template <typename T, typename Set> struct set_typed_:set_ {
     py::buffer_info rinfo = ret.request();
     bool *rptr = (bool*)(rinfo.ptr);
     auto end = map_.end();
+    #pragma omp parallel for if(dict.parallel_)
     for(py::ssize_t i = 0; i < einfo.size; ++i) {
       rptr[i] = map_.find(eptr[i]) != end;
     }
@@ -70,6 +74,7 @@ template <typename T, typename Set> struct set_typed_:set_ {
     if (!dtype_.is(py::dtype(einfo)))
         throw std::invalid_argument("Element array has incorrect dtype");
     T *eptr = (T*)(einfo.ptr);
+    #pragma omp parallel for if(dict.parallel_)
     for(py::ssize_t i = 0; i < einfo.size; ++i) { map_.erase(eptr[i]); }
   };
 
@@ -91,6 +96,7 @@ template <typename T, typename Set> struct set_typed_:set_ {
     if (!dtype_.is(py::dtype(einfo)))
         throw std::invalid_argument("Element array has incorrect dtype");
     T *eptr = (T*)(einfo.ptr);
+    #pragma omp parallel for if(dict.parallel_)
     for(py::ssize_t i = 0; i < einfo.size; ++i) {
       if(!map_.erase(eptr[i]))
         throw pybind11::key_error("Element not in set");
@@ -101,6 +107,15 @@ template <typename T, typename Set> struct set_typed_:set_ {
     py::buffer_info binfo = other.buffer();
     py::array elem(other.dtype_, {(py::ssize_t)binfo.shape[0]}, {(py::ssize_t)binfo.strides[0]}, binfo.ptr);
     add(elem);
+  };
+  
+  py::array items() {
+    auto it = py::array(dtype_, {map_.size()}, {dtype_.itemsize()});
+    py::buffer_info kinfo = it.request();
+    K *kptr = (K*)(kinfo.ptr);
+    #pragma omp parallel for if(dict.parallel_)
+    for(const auto& p: map_) { kptr[0] = p.first; ++kptr; }
+    return it;
   };
 
   Set map_;
