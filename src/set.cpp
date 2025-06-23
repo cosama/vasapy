@@ -3,9 +3,17 @@
 #include <iostream>
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include <omp.h>
+#include <mutex>
 #include <stdexcept>
+#include <vector>
 
 namespace py = pybind11;
+
+
+namespace {
+    constexpr int OMP_MAX_THREADS = 4;
+}
 
 
 struct set_ {
@@ -24,6 +32,12 @@ struct set_ {
 };
 
 
+struct ParallelReadInfo {
+    size_t total_size;
+    std::vector<size_t> offsets;
+};
+
+
 template <typename T> struct set_typed_:set_ {
 
   set_typed_(py::dtype dtype) {
@@ -35,14 +49,43 @@ template <typename T> struct set_typed_:set_ {
     if (!dtype_.is(py::dtype(einfo)))
         throw std::invalid_argument("Element array has incorrect dtype");
     auto end = (T*)(einfo.ptr) + einfo.size;
-    for(auto p = (T*)(einfo.ptr); p < end; ++p) map_.emplace(p);
+  
+    py::gil_scoped_release release;
+    #pragma omp parallel for num_threads(OMP_MAX_THREADS)
+    for(auto p = (T*)(einfo.ptr); p < end; ++p) map_.emplace(*p);
   };
 
+  ParallelReadInfo get_parallel_read_info() {
+      const size_t num_submaps = map_.subcnt();
+      std::vector<size_t> offsets(num_submaps + 1, 0);
+      for (size_t i = 0; i < num_submaps; ++i) {
+          map_.with_submap(i, [&](const auto& submap) {
+              offsets[i + 1] = submap.size();
+          });
+      }
+
+      for (size_t i = 0; i < num_submaps; ++i) {
+          offsets[i + 1] += offsets[i];
+      }
+      return {offsets.back(), offsets};
+  }
+
   py::buffer_info buffer() {
-    auto ret = py::array(dtype_, {map_.size()}, {dtype_.itemsize()});
+    auto info = get_parallel_read_info();
+    auto ret = py::array(dtype_, {info.total_size});
     py::buffer_info rinfo = ret.request();
     T *rptr = (T*)(rinfo.ptr);
-    for(const auto& p: map_) { rptr[0] = p; ++rptr; };
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for num_threads(OMP_MAX_THREADS)
+    for (size_t i = 0; i < map_.subcnt(); ++i) {
+        map_.with_submap(i, [&](const auto& submap) {
+            T* r_out = rptr + info.offsets[i];
+            for (const auto& p : submap) {
+                *r_out++ = p;
+            }
+        });
+    }
     return rinfo;
   };
 
@@ -53,10 +96,13 @@ template <typename T> struct set_typed_:set_ {
   py::array_t<bool> contains(py::array elem) {
     py::buffer_info einfo = elem.request();
     T *eptr = (T*)(einfo.ptr);
-    auto ret = py::array_t<bool>({(py::size_t)einfo.size});
+    auto ret = py::array_t<bool>({static_cast<py::ssize_t>(kinfo.size)});
     py::buffer_info rinfo = ret.request();
     bool *rptr = (bool*)(rinfo.ptr);
     auto end = map_.end();
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for num_threads(OMP_MAX_THREADS)
     for(int i = 0; i < einfo.size; ++i) {
       rptr[i] = map_.find(eptr[i]) != end;
     }
@@ -68,6 +114,9 @@ template <typename T> struct set_typed_:set_ {
     if (!dtype_.is(py::dtype(einfo)))
         throw std::invalid_argument("Element array has incorrect dtype");
     T *eptr = (T*)(einfo.ptr);
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for num_threads(OMP_MAX_THREADS)
     for(int i = 0; i < einfo.size; ++i) { map_.erase(eptr[i]); }
   };
 
@@ -89,6 +138,9 @@ template <typename T> struct set_typed_:set_ {
     if (!dtype_.is(py::dtype(einfo)))
         throw std::invalid_argument("Element array has incorrect dtype");
     T *eptr = (T*)(einfo.ptr);
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for num_threads(OMP_MAX_THREADS)
     for(int i = 0; i < einfo.size; ++i) {
       if(!map_.erase(eptr[i]))
         throw pybind11::key_error("Element not in set");
@@ -101,7 +153,12 @@ template <typename T> struct set_typed_:set_ {
     for(auto &p : o->map_) map_.emplace(p);
   };
 
-  phmap::flat_hash_set<T> map_;
+  phmap::parallel_flat_hash_set<T,
+                                phmap::priv::hash_default_hash<T>,
+                                phmap::priv::hash_default_eq<T>,
+                                std::allocator<T>,
+                                4,
+                                std::mutex> map_;
 };
 
 
@@ -120,6 +177,7 @@ std::unique_ptr<set_> init_set_(py::dtype d, IntList<I, N...>) {
 
 
 void init_vasapy_set(py::module &m) {
+    omp_set_dynamic(1);
     py::class_<set_>(m, "_set", py::buffer_protocol())
         .def(py::init(
           [](py::dtype d) {

@@ -3,8 +3,10 @@
 #include <iostream>
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include <omp.h>
+#include <mutex>
 #include <stdexcept>
-
+#include <vector>
 
 #define __NPD_TYPES__ bool, char, \
                      float, double, long double, \
@@ -14,6 +16,11 @@
 
 
 namespace py = pybind11;
+
+
+namespace {
+    constexpr int OMP_MAX_THREADS = 4;
+}
 
 
 struct dict_ {
@@ -35,6 +42,12 @@ struct dict_ {
 };
 
 
+struct ParallelReadInfo {
+    size_t total_size;
+    std::vector<size_t> offsets;
+};
+
+
 template <typename K, typename T> struct dict_typed_: dict_ {
 
   dict_typed_(py::dtype ktype, py::dtype dtype) {
@@ -49,10 +62,13 @@ template <typename K, typename T> struct dict_typed_: dict_ {
   py::array_t<bool> contains(py::array keys) {
     py::buffer_info kinfo = keys.request();
     K *kptr = (K*)(kinfo.ptr);
-    auto ret = py::array_t<bool>({(py::size_t)kinfo.size});
+    auto ret = py::array_t<bool>({static_cast<py::ssize_t>(kinfo.size)});
     py::buffer_info rinfo = ret.request();
     bool *rptr = (bool*)(rinfo.ptr);
     auto end = map_.end();
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for num_threads(OMP_MAX_THREADS)
     for(int i = 0; i < kinfo.size; ++i) {
       rptr[i] = map_.find(kptr[i]) != end;
     }
@@ -64,6 +80,9 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     if (!ktype_.is(py::dtype(kinfo)))
         throw std::invalid_argument("Key array has incorrect dtype");
     K *kptr = (K*)(kinfo.ptr);
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for num_threads(OMP_MAX_THREADS)
     for(int i = 0; i < kinfo.size; ++i) { map_.erase(kptr[i]); }
   };
 
@@ -85,6 +104,9 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     auto data = py::array(dtype_, kinfo.shape, strides);
     py::buffer_info dinfo = data.request();
     T *dptr = (T*)(dinfo.ptr);
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for num_threads(OMP_MAX_THREADS)
     for(int i = 0; i < kinfo.size; ++i) {
       auto d = map_.find(kptr[i]);
       if(d == map_.end())
@@ -107,29 +129,68 @@ template <typename K, typename T> struct dict_typed_: dict_ {
     auto data = py::array(dtype_, kinfo.shape, strides);
     py::buffer_info dinfo = data.request();
     T *dptr = (T*)(dinfo.ptr);
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for num_threads(OMP_MAX_THREADS)
     for(int i = 0; i < kinfo.size; ++i) dptr[i] = map_.at(kptr[i]);
     return data;
   };
 
+  ParallelReadInfo get_parallel_read_info() {
+      const size_t num_submaps = map_.subcnt();
+      std::vector<size_t> offsets(num_submaps + 1, 0);
+      for (size_t i = 0; i < num_submaps; ++i) {
+          map_.with_submap(i, [&](const auto& submap) {
+              offsets[i + 1] = submap.size();
+          });
+      }
+
+      for (size_t i = 0; i < num_submaps; ++i) {
+          offsets[i + 1] += offsets[i];
+      }
+      return {offsets.back(), offsets};
+  }
+
   std::pair<py::array, py::array> items() {
-    auto keys = py::array(ktype_, {map_.size()}, {ktype_.itemsize()});
-    auto data = py::array(dtype_, {map_.size()}, {dtype_.itemsize()});
+    auto info = get_parallel_read_info();
+    auto keys = py::array(ktype_, {info.total_size}, {ktype_.itemsize()});
+    auto data = py::array(dtype_, {info.total_size}, {ktype_.itemsize()});
     py::buffer_info kinfo = keys.request();
     py::buffer_info dinfo = data.request();
     K *kptr = (K*)(kinfo.ptr);
     T *dptr = (T*)(dinfo.ptr);
-    for(const auto& p: map_) {
-      kptr[0] = p.first; dptr[0] = p.second;
-      ++kptr; ++dptr;
+
+    //py::gil_scoped_release release;
+    //#pragma omp parallel for num_threads(OMP_MAX_THREADS)
+    for (size_t i = 0; i < map_.subcnt(); ++i) {
+        map_.with_submap(i, [&](const auto& submap) {
+            K* k_out = kptr + info.offsets[i];
+            T* d_out = dptr + info.offsets[i];
+            for (const auto& p : submap) {
+                *k_out++ = p.first;
+                *d_out++ = p.second;
+            }
+        });
     }
     return std::pair<py::array, py::array>(keys, data);
   };
 
   py::array keys() {
-    auto keys = py::array(ktype_, {map_.size()}, {ktype_.itemsize()});
+    auto info = get_parallel_read_info();
+    auto keys = py::array(ktype_, {info.total_size}, {ktype_.itemsize()});
     py::buffer_info kinfo = keys.request();
     K *kptr = (K*)(kinfo.ptr);
-    for(const auto& p: map_) { kptr[0] = p.first; ++kptr; }
+
+    //py::gil_scoped_release release;
+    //#pragma omp parallel for num_threads(OMP_MAX_THREADS)
+    for (size_t i = 0; i < map_.subcnt(); ++i) {
+        map_.with_submap(i, [&](const auto& submap) {
+            K* k_out = kptr + info.offsets[i];
+            for (const auto& p : submap) {
+                *k_out++ = p.first;
+            }
+        });
+    }
     return keys;
   };
 
@@ -160,19 +221,38 @@ template <typename K, typename T> struct dict_typed_: dict_ {
         throw std::invalid_argument("Data array has incorrect dtype");
     K *kptr = (K*)(kinfo.ptr);
     T *dptr = (T*)(dinfo.ptr);
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for num_threads(OMP_MAX_THREADS)
     for(int i = 0; i < kinfo.size; ++i)
       map_[kptr[i]] = (dinfo.size == 1) ? dptr[0] : dptr[i];
   };
 
   py::array values() {
-    auto data = py::array(dtype_, {map_.size()}, {dtype_.itemsize()});
+    auto info = get_parallel_read_info();
+    auto data = py::array(dtype_, {info.total_size}, {dtype_.itemsize()});
     py::buffer_info dinfo = data.request();
     T *dptr = (T*)(dinfo.ptr);
-    for(const auto& p: map_) { dptr[0] = p.second; ++dptr; }
+
+    //py::gil_scoped_release release;
+    //#pragma omp parallel for num_threads(OMP_MAX_THREADS)
+    for (size_t i = 0; i < map_.subcnt(); ++i) {
+        map_.with_submap(i, [&](const auto& submap) {
+            T* d_out = dptr + info.offsets[i];
+            for (const auto& p : submap) {
+                *d_out++ = p.second;
+            }
+        });
+    }
     return data;
   };
 
-  phmap::flat_hash_map<K, T> map_;
+  phmap::parallel_flat_hash_map<K, T,
+                                phmap::priv::hash_default_hash<K>,
+                                phmap::priv::hash_default_eq<K>,
+                                std::allocator<std::pair<const K, T>>,
+                                4,
+                                std::mutex> map_;
 };
 
 
@@ -216,20 +296,25 @@ void inpl_op_(dict_ &dict, py::array keys, py::array data, py::array fill,
     auto kptr = (byte_set<I>*)(kinfo.ptr);
     auto dptr = (J*)(dinfo.ptr);
     auto fptr = (byte_set<sizeof(J)>*)(finfo.ptr);
-    J* val;
+
+    py::gil_scoped_release release;
+    #pragma omp parallel for num_threads(OMP_MAX_THREADS)
     for(int i = 0; i < kinfo.size; ++i) {
-      auto d = dict_t->map_.find(kptr[i]);
-      if(d == dict_t->map_.end()) {
-        auto p = dict_t->map_.emplace(
-          kptr[i], ((finfo.size == 1) ? fptr[0] : fptr[i]));
-        if (!p.second)
-            throw std::runtime_error("In-place operation failed due to logic error during insertion");
-        val = (J*)&(p.first->second);
-      }
-      else {
-        val = (J*)&(d->second);
-      };
-      val[0] = op(val[0], ((dinfo.size == 1) ? dptr[0] : dptr[i]));
+        dict_t->map_.lazy_emplace_l(
+            kptr[i],
+            [&, i](auto& pair) {
+                J* val_ptr = (J*)&(pair.second);
+                J data_val = (dinfo.size == 1) ? dptr[0] : dptr[i];
+                *val_ptr = op(*val_ptr, data_val);
+            },
+            [&, i](const auto& constructor) {
+                J data_val = (dinfo.size == 1) ? dptr[0] : dptr[i];
+                J fill_val;
+                memcpy(&fill_val, (finfo.size == 1) ? fptr : &fptr[i], sizeof(J));
+                J new_val_numeric = op(fill_val, data_val);
+                constructor(kptr[i], byte_set<sizeof(J)>(&new_val_numeric));
+            }
+        );
     };
   };
 };
@@ -257,6 +342,7 @@ std::unique_ptr<dict_> init_dict_(
 
 
 void init_vasapy_dict(py::module &m) {
+    omp_set_dynamic(1);
     py::class_<dict_>(m, "_dict")
         .def(py::init(
           [](py::dtype k, py::dtype d) {
