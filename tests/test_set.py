@@ -17,7 +17,7 @@ def set_1_(dtype):
 
 @pytest.fixture
 def set_10_(dtype):
-    if dtype == np.bool_ or dtype == np.bool8:
+    if dtype == np.bool_:
         pytest.xfail("Boolean set can only have 2 elements")
     elem = np.arange(10, dtype=dtype)
     return vp.set(elem), elem.dtype, elem
@@ -47,7 +47,7 @@ class TestSet:
 
     def test_add(self, set_0_):
         hs, dtype_ = set_0_
-        if dtype_ == np.bool_ or dtype_ == np.bool8:
+        if dtype_ == np.bool_:
             pytest.xfail("Boolean set can only have 2 elements")
         elem = np.arange(10, dtype=dtype_)
         hs.add(elem)
