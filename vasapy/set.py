@@ -25,8 +25,8 @@ class set(_vp._set):
         ret = super().contains(np.asarray(elem, dtype=self.dtype))
         return ret.item() if np.isscalar(elem) else ret
 
-    def dischard(self, elem):
-        super().dischard(np.asarray(elem, dtype=self.dtype))
+    def discard(self, elem):
+        super().discard(np.asarray(elem, dtype=self.dtype))
 
     def pop(self):
         return super().pop().item()
