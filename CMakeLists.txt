@@ -25,4 +25,5 @@ target_include_directories(_vasapy PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/3rd-party/parallel-hashmap"
 )
 
+target_compile_options(_vasapy PRIVATE -O3 -march=native -ffast-math)
 install(TARGETS _vasapy LIBRARY DESTINATION vasapy)
