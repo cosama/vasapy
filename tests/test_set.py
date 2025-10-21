@@ -54,9 +54,9 @@ class TestSet:
         assert len(hs) == 10
         self.helper_check(np.asarray(hs), elem, sort=True)
 
-    def test_dischard(self, set_10_):
+    def test_discard(self, set_10_):
         hs, dtype_, elem = set_10_
-        hs.dischard(np.arange(5, 15, dtype=dtype_))
+        hs.discard(np.arange(5, 15, dtype=dtype_))
         assert len(hs) == 5
         self.helper_check(np.arange(5, dtype=dtype_), np.asarray(hs),
                           sort=True)

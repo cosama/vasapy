@@ -3,7 +3,7 @@ import numpy as np
 # from https://numpy.org/doc/stable/reference/arrays.scalars.html#built-in-scalar-types
 nptypes = [
     np.bool_,
-    np.bool8,
+    # np.bool8,  # Removed: numpy bool8 type is not available in recent NumPy versions
     np.byte,
     np.short,
     np.intc,
@@ -27,7 +27,7 @@ nptypes = [
     np.half,  # no C type available
     np.single,
     np.double,
-    np.float_,
+    # np.float_,  # Removed: numpy float_ type removed in NumPy 2.0
     # np.longfloat,  # Issue with pybind11 (80bit?)
     np.float16,  # no C type available
     np.float32,
@@ -35,7 +35,7 @@ nptypes = [
     # np.float96,  # Platform dependent, probably rare
     # np.float128,  # Issue with pybind11 (80bit?)
     np.csingle,
-    np.complex_,
+    # np.complex_,  # Removed: numpy complex_ type removed in NumPy 2.0
     # np.clongfloat,  # Issue with pybind11 (80bit?)
     np.complex64,
     # np.complex128,  # Issue with pybind11 (80bit?)

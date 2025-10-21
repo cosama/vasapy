@@ -49,7 +49,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
   py::array_t<bool> contains(py::array keys) {
     py::buffer_info kinfo = keys.request();
     K *kptr = (K*)(kinfo.ptr);
-    auto ret = py::array_t<bool>({(py::size_t)kinfo.size});
+    auto ret = py::array_t<bool>({static_cast<py::ssize_t>(kinfo.size)});
     py::buffer_info rinfo = ret.request();
     bool *rptr = (bool*)(rinfo.ptr);
     auto end = map_.end();

@@ -14,7 +14,7 @@ struct set_ {
   virtual py::buffer_info buffer() = 0;
   virtual void clear() = 0;
   virtual py::array_t<bool> contains(py::array) = 0;
-  virtual void dischard(py::array) = 0;
+  virtual void discard(py::array) = 0;
   virtual py::size_t len() = 0;
   virtual py::array pop() = 0;
   virtual void remove(py::array) = 0;
@@ -53,7 +53,7 @@ template <typename T> struct set_typed_:set_ {
   py::array_t<bool> contains(py::array elem) {
     py::buffer_info einfo = elem.request();
     T *eptr = (T*)(einfo.ptr);
-    auto ret = py::array_t<bool>({(py::size_t)einfo.size});
+    auto ret = py::array_t<bool>({static_cast<py::ssize_t>(einfo.size)});
     py::buffer_info rinfo = ret.request();
     bool *rptr = (bool*)(rinfo.ptr);
     auto end = map_.end();
@@ -63,7 +63,7 @@ template <typename T> struct set_typed_:set_ {
     return ret;
   };
 
-  void dischard(py::array elem) {
+  void discard(py::array elem) {
     py::buffer_info einfo = elem.request();
     if (!dtype_.is(py::dtype(einfo)))
         throw std::invalid_argument("Element array has incorrect dtype");
@@ -130,7 +130,7 @@ void init_vasapy_set(py::module &m) {
         .def("add", &set_::add, py::arg("elem"))
         .def("clear", &set_::clear)
         .def("contains", &set_::contains, py::arg("keys"))
-        .def("dischard", &set_::dischard, py::arg("elem"))
+        .def("discard", &set_::discard, py::arg("elem"))
         .def("pop", &set_::pop)
         .def("remove", &set_::remove, py::arg("elem"))
         .def("update", &set_::update, py::arg("other"))

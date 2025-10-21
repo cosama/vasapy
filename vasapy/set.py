@@ -1,7 +1,7 @@
-from _vasapy import _set
+from . import _vasapy as _vp
 import numpy as np
 
-class set(_set):
+class set(_vp._set):
     def __init__(self, elem):
         if isinstance(elem, np.ndarray):
             dtype = elem.dtype

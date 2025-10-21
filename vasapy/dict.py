@@ -1,5 +1,6 @@
-import _vasapy as _vp
+from . import _vasapy as _vp
 import numpy as np
+
 
 class dict(_vp._dict):
     def __init__(self, keys, data):
