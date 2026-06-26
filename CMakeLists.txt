@@ -18,12 +18,9 @@ pybind11_add_module(_vasapy
     src/vasapy.cpp
 )
 
-set_target_properties(_vasapy PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/vasapy)
-
 target_include_directories(_vasapy PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/3rd-party/parallel-hashmap"
 )
 
-target_compile_options(_vasapy PRIVATE -O3 -march=native -ffast-math)
 install(TARGETS _vasapy LIBRARY DESTINATION vasapy)

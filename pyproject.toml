@@ -17,3 +17,12 @@ Homepage = "https://github.com/cosama/vasapy"
 
 [tool.scikit-build]
 # Default configuration picks up CMakeLists.txt at the repository root.
+sdist.exclude = [
+    "examples/**",
+    "3rd-party/parallel-hashmap/**",
+]
+sdist.include = [
+    "3rd-party/parallel-hashmap/LICENSE",
+    "3rd-party/parallel-hashmap/README.md",
+    "3rd-party/parallel-hashmap/parallel_hashmap/**",
+]
