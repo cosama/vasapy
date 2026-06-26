@@ -18,7 +18,7 @@ def dict_1_(ktype, dtype):
 
 @pytest.fixture
 def dict_10_(ktype, dtype):
-    if ktype == np.bool_ or ktype == np.bool8:
+    if ktype == np.bool_:
         pytest.xfail("Boolean dict can only have 2 elements")
     keys = np.arange(10, dtype=ktype)
     data = (np.random.rand(10)*100).astype(dtype)

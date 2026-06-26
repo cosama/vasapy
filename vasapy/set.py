@@ -1,7 +1,7 @@
-from _vasapy import _set
+from . import _vasapy as _vp
 import numpy as np
 
-class set(_set):
+class set(_vp._set):
     def __init__(self, elem):
         if isinstance(elem, np.ndarray):
             dtype = elem.dtype
@@ -25,8 +25,8 @@ class set(_set):
         ret = super().contains(np.asarray(elem, dtype=self.dtype))
         return ret.item() if np.isscalar(elem) else ret
 
-    def dischard(self, elem):
-        super().dischard(np.asarray(elem, dtype=self.dtype))
+    def discard(self, elem):
+        super().discard(np.asarray(elem, dtype=self.dtype))
 
     def pop(self):
         return super().pop().item()

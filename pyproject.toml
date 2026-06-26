@@ -1,0 +1,28 @@
+[build-system]
+requires = ["scikit-build-core>=0.4.0", "pybind11"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "vasapy"
+version = "0.0.4"
+description = "Vectorized ASsociative Arrays for PYthon"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "Apache-2.0"}
+authors = [{name = "Marco Salathe"}]
+dependencies = ["numpy>=1.20"]
+
+[project.urls]
+Homepage = "https://github.com/cosama/vasapy"
+
+[tool.scikit-build]
+# Default configuration picks up CMakeLists.txt at the repository root.
+sdist.exclude = [
+    "examples/**",
+    "3rd-party/parallel-hashmap/**",
+]
+sdist.include = [
+    "3rd-party/parallel-hashmap/LICENSE",
+    "3rd-party/parallel-hashmap/README.md",
+    "3rd-party/parallel-hashmap/parallel_hashmap/**",
+]

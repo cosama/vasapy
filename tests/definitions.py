@@ -3,7 +3,6 @@ import numpy as np
 # from https://numpy.org/doc/stable/reference/arrays.scalars.html#built-in-scalar-types
 nptypes = [
     np.bool_,
-    np.bool8,
     np.byte,
     np.short,
     np.intc,
@@ -27,7 +26,6 @@ nptypes = [
     np.half,  # no C type available
     np.single,
     np.double,
-    np.float_,
     # np.longfloat,  # Issue with pybind11 (80bit?)
     np.float16,  # no C type available
     np.float32,
@@ -35,7 +33,6 @@ nptypes = [
     # np.float96,  # Platform dependent, probably rare
     # np.float128,  # Issue with pybind11 (80bit?)
     np.csingle,
-    np.complex_,
     # np.clongfloat,  # Issue with pybind11 (80bit?)
     np.complex64,
     # np.complex128,  # Issue with pybind11 (80bit?)
