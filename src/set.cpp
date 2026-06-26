@@ -53,7 +53,7 @@ template <typename T> struct set_typed_:set_ {
   py::array_t<bool> contains(py::array elem) {
     py::buffer_info einfo = elem.request();
     T *eptr = (T*)(einfo.ptr);
-    auto ret = py::array_t<bool>({static_cast<py::ssize_t>(einfo.size)});
+    auto ret = py::array_t<bool>(static_cast<py::ssize_t>(einfo.size));
     py::buffer_info rinfo = ret.request();
     bool *rptr = (bool*)(rinfo.ptr);
     auto end = map_.end();
