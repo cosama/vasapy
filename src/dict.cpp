@@ -6,11 +6,16 @@
 #include <stdexcept>
 
 
-#define __NPD_TYPES__ bool, char, \
-                     float, double, long double, \
-                     std::complex<float>, std::complex<double>, std::complex<long double>, \
-                     std::int8_t, std::uint8_t, std::int16_t, std::uint16_t, \
-                     std::int32_t, std::uint32_t, std::int64_t, std::uint64_t
+#define VASAPY_NPD_TYPES bool, char, \
+                         float, double, long double, \
+                         std::complex<float>, std::complex<double>, std::complex<long double>, \
+                         std::int8_t, std::uint8_t, std::int16_t, std::uint16_t, \
+                         std::int32_t, std::uint32_t, std::int64_t, std::uint64_t
+#define VASAPY_NPD_DIV_TYPES char, \
+                             float, double, long double, \
+                             std::complex<float>, std::complex<double>, std::complex<long double>, \
+                             std::int8_t, std::uint8_t, std::int16_t, std::uint16_t, \
+                             std::int32_t, std::uint32_t, std::int64_t, std::uint64_t
 
 
 namespace py = pybind11;
@@ -49,7 +54,7 @@ template <typename K, typename T> struct dict_typed_: dict_ {
   py::array_t<bool> contains(py::array keys) {
     py::buffer_info kinfo = keys.request();
     K *kptr = (K*)(kinfo.ptr);
-    auto ret = py::array_t<bool>({static_cast<py::ssize_t>(kinfo.size)});
+    auto ret = py::array_t<bool>(static_cast<py::ssize_t>(kinfo.size));
     py::buffer_info rinfo = ret.request();
     bool *rptr = (bool*)(rinfo.ptr);
     auto end = map_.end();
@@ -279,18 +284,18 @@ void init_vasapy_dict(py::module &m) {
         .def_readonly("dtype", &dict_::dtype_);
     m.def("iadd", [](dict_ &dict, py::array k, py::array d, py::array f){
         inpl_op_(dict, k, d, f, IntList<1, 2, 4, 8, 16>(),
-                 TypeList<__NPD_TYPES__>(), std::plus());
+                 TypeList<VASAPY_NPD_TYPES>(), std::plus());
     });
     m.def("isub", [](dict_ &dict, py::array k, py::array d, py::array f){
         inpl_op_(dict, k, d, f, IntList<1, 2, 4, 8, 16>(),
-                 TypeList<__NPD_TYPES__>(), std::minus());
+                 TypeList<VASAPY_NPD_TYPES>(), std::minus());
     });
     m.def("imul", [](dict_ &dict, py::array k, py::array d, py::array f){
         inpl_op_(dict, k, d, f, IntList<1, 2, 4, 8, 16>(),
-                 TypeList<__NPD_TYPES__>(), std::multiplies());
+                 TypeList<VASAPY_NPD_TYPES>(), std::multiplies());
     });
     m.def("idiv", [](dict_ &dict, py::array k, py::array d, py::array f){
         inpl_op_(dict, k, d, f, IntList<1, 2, 4, 8, 16>(),
-                 TypeList<__NPD_TYPES__>(), std::divides());
+                 TypeList<VASAPY_NPD_DIV_TYPES>(), std::divides());
     });
 };
