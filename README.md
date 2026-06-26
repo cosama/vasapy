@@ -45,3 +45,12 @@ pip install vasapy --user
 
 If it doesn't build try to install pybind11 `pip install pybind11 --user` and
 install the python development files with your package manager.
+
+## Development
+
+Modern `pip`/PEP 517 builds do not expose a project-specific clean command.
+Remove local build artifacts:
+
+```
+python scripts/clean_build.py
+```
